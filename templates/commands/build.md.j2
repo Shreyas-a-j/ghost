@@ -1,0 +1,9 @@
+---
+description: Implement one feature spec
+{{ agent_line }}{{ model_line }}---
+Read project `AGENTS.md`, `STATE.md`, and only `specs/feature-$ARGUMENTS.md`.
+{% if checkpoint_before %}First run `ghost checkpoint "before build $ARGUMENTS"`.
+{% endif %}Implement the scenarios in that spec.
+Run `scripts/check.sh` and fix failures.
+Update `STATE.md` (focus, next steps, done).
+Report at most 6 lines: what changed, files, the check result as actually run, remaining issues.

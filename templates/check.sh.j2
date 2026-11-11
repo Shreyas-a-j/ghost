@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+run_stage() {
+  local name="$1"
+  shift
+  local output
+  output="$(mktemp)"
+  if "$@" >"$output" 2>&1; then
+    echo "ok $name"
+  else
+    echo "FAIL $name"
+    tail -n 40 "$output"
+    rm -f "$output"
+    echo "CHECK FAILED ($name)"
+    exit 1
+  fi
+  rm -f "$output"
+}
+{% if is_rust %}
+run_stage fmt cargo fmt --check
+run_stage clippy cargo clippy -q -- -D warnings
+{% if run_tests %}
+run_stage test cargo test -q
+{% else %}
+echo "skip test (test_level = none)"
+{% endif %}
+{% elif is_python %}
+if command -v ruff >/dev/null 2>&1; then
+  run_stage lint ruff check
+else
+  echo "skip lint (ruff not found)"
+fi
+{% if run_tests %}
+if command -v pytest >/dev/null 2>&1; then
+  run_stage test pytest -q
+else
+  echo "skip test (pytest not found)"
+fi
+{% else %}
+echo "skip test (test_level = none)"
+{% endif %}
+{% elif is_ts %}
+if command -v node >/dev/null 2>&1 && node -e 'const s=require("./package.json").scripts||{}; process.exit(s.lint?0:1)' 2>/dev/null; then
+  run_stage lint npm run lint --silent
+else
+  echo "skip lint (no lint script)"
+fi
+{% if run_tests %}
+if command -v node >/dev/null 2>&1 && node -e 'const s=require("./package.json").scripts||{}; process.exit(s.test?0:1)' 2>/dev/null; then
+  run_stage test npm test --silent
+else
+  echo "skip test (no test script)"
+fi
+{% else %}
+echo "skip test (test_level = none)"
+{% endif %}
+{% else %}
+# Other stack: add your own stages here.
+echo "skip check (no stages configured for Other)"
+{% endif %}
+echo "CHECK PASSED"

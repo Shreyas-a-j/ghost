@@ -42,6 +42,29 @@ pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Resu
     Ok(0)
 }
 
+pub fn regen() -> Result<i32> {
+    let root = Path::new(".");
+    let answers = load_required(root)?;
+    answers.validate_structure()?;
+    let agents = crate::opencode::detected_agents();
+    let files = crate::render::generate(&answers, &agents)?;
+    crate::render::write_files(root, &files)?;
+    crate::render::append_gitignore(root)?;
+    println!("re-rendered {} files", files.len());
+    Ok(0)
+}
+
+pub fn load_required(root: &Path) -> Result<Answers> {
+    let path = root.join(ANSWERS_PATH);
+    if !path.exists() {
+        bail!(
+            "run `ghost new` first (missing {})",
+            path.display()
+        );
+    }
+    Answers::load(&path)
+}
+
 pub fn not_ready() -> Result<i32> {
     bail!("this command is implemented in a later milestone")
 }

@@ -1,17 +1,32 @@
-use crate::answers::{slugify, Answers};
+use crate::answers::{slugify, Answers, Stack};
+use crate::opencode;
 use anyhow::{Context, Result};
 use minijinja::{Environment, Value};
 use serde::Serialize;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use std::collections::HashSet;
 
 const AGENTS_TEMPLATE: &str = include_str!("../templates/AGENTS.md.j2");
 const STATE_TEMPLATE: &str = include_str!("../templates/STATE.md.j2");
 const OVERVIEW_TEMPLATE: &str = include_str!("../templates/overview.md.j2");
 const FEATURE_TEMPLATE: &str = include_str!("../templates/feature.md.j2");
 const SCHEMA_TEMPLATE: &str = include_str!("../templates/schema.yaml.j2");
+const CHECK_TEMPLATE: &str = include_str!("../templates/check.sh.j2");
+const DEV_TEMPLATE: &str = include_str!("../templates/dev.sh.j2");
+
+const COMMAND_TEMPLATES: [(&str, &str); 7] = [
+    ("plan", include_str!("../templates/commands/plan.md.j2")),
+    ("build", include_str!("../templates/commands/build.md.j2")),
+    ("fix", include_str!("../templates/commands/fix.md.j2")),
+    ("test", include_str!("../templates/commands/test.md.j2")),
+    ("review", include_str!("../templates/commands/review.md.j2")),
+    ("handoff", include_str!("../templates/commands/handoff.md.j2")),
+    (
+        "checkpoint",
+        include_str!("../templates/commands/checkpoint.md.j2"),
+    ),
+];
 
 pub const GITIGNORE_LINES: [&str; 4] = [".env", ".env.*", ".ghost/dev.pid", ".ghost/dev.log"];
 
@@ -24,11 +39,20 @@ pub struct GeneratedFile {
 
 impl GeneratedFile {
     fn new(path: impl Into<PathBuf>, content: String) -> Self {
+        let mut content = content;
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
         Self {
             path: path.into(),
             content,
             executable: false,
         }
+    }
+
+    fn executable(mut self) -> Self {
+        self.executable = true;
+        self
     }
 }
 
@@ -58,7 +82,13 @@ struct View {
     skills_line: String,
     hackathon: bool,
     run_cmd: String,
+    run_cmd_quoted: String,
     checkpoint_before: bool,
+    is_rust: bool,
+    is_python: bool,
+    is_ts: bool,
+    is_other: bool,
+    run_tests: bool,
 }
 
 impl View {
@@ -95,9 +125,27 @@ impl View {
             skills_line: answers.skills_label(),
             hackathon: answers.mode == crate::answers::Mode::Hackathon,
             run_cmd: answers.run_cmd.clone(),
+            run_cmd_quoted: shell_quote(&answers.run_cmd),
             checkpoint_before: answers.checkpoint_freq == crate::answers::CheckpointFreq::BeforeEvery,
+            is_rust: answers.stack == Stack::Rust,
+            is_python: answers.stack == Stack::Python,
+            is_ts: answers.stack == Stack::TypeScriptNode,
+            is_other: answers.stack == Stack::Other,
+            run_tests: answers.test_level.runs_tests(),
         }
     }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[derive(Serialize)]
+struct CommandView<'a> {
+    #[serde(flatten)]
+    base: &'a View,
+    agent_line: String,
+    model_line: String,
 }
 
 fn environment() -> Result<Environment<'static>> {
@@ -119,10 +167,18 @@ fn environment() -> Result<Environment<'static>> {
         .context("invalid feature template")?;
     env.add_template("schema", SCHEMA_TEMPLATE)
         .context("invalid schema template")?;
+    env.add_template("check", CHECK_TEMPLATE)
+        .context("invalid check template")?;
+    env.add_template("dev", DEV_TEMPLATE)
+        .context("invalid dev template")?;
+    for (name, source) in COMMAND_TEMPLATES {
+        env.add_template_owned(format!("cmd-{name}"), source)
+            .with_context(|| format!("invalid {name} command template"))?;
+    }
     Ok(env)
 }
 
-pub fn generate(answers: &Answers, _agents: &std::collections::BTreeSet<String>) -> Result<Vec<GeneratedFile>> {
+pub fn generate(answers: &Answers, agents: &BTreeSet<String>) -> Result<Vec<GeneratedFile>> {
     let env = environment()?;
     let view = View::from_answers(answers);
     let ctx = Value::from(minijinja::value::Serde(&view));
@@ -134,10 +190,7 @@ pub fn generate(answers: &Answers, _agents: &std::collections::BTreeSet<String>)
     };
 
     let mut files = Vec::new();
-    files.push(GeneratedFile::new(
-        "AGENTS.md",
-        render("agents")?,
-    ));
+    files.push(GeneratedFile::new("AGENTS.md", render("agents")?));
     files.push(GeneratedFile::new("STATE.md", render("state")?));
     files.push(GeneratedFile::new(
         "specs/00-overview.md",
@@ -162,6 +215,46 @@ pub fn generate(answers: &Answers, _agents: &std::collections::BTreeSet<String>)
         "specs/schema.yaml",
         render("schema")?,
     ));
+    files.push(GeneratedFile::new("scripts/check.sh", render("check")?).executable());
+    files.push(GeneratedFile::new("scripts/dev.sh", render("dev")?).executable());
+
+    for (name, _) in COMMAND_TEMPLATES {
+        let agent = opencode::agent_for(name, agents);
+        let command_view = CommandView {
+            base: &view,
+            agent_line: agent
+                .map(|agent| format!("agent: {agent}\n"))
+                .unwrap_or_default(),
+            model_line: answers
+                .model_line()
+                .map(|model| format!("model: {model}\n"))
+                .unwrap_or_default(),
+        };
+        let template_name = format!("cmd-{name}");
+        let content = env
+            .get_template(&template_name)?
+            .render(Value::from(minijinja::value::Serde(&command_view)))
+            .with_context(|| format!("could not render command {name}"))?;
+        files.push(GeneratedFile::new(
+            format!("{}/{name}.md", opencode::COMMANDS_DIR),
+            content,
+        ));
+    }
+
+    if let Some(model) = answers.model_line() {
+        let config = serde_json::json!({
+            "$schema": opencode::CONFIG_SCHEMA,
+            "model": model,
+        });
+        files.push(GeneratedFile::new(
+            opencode::PROJECT_CONFIG,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&config).context("could not render opencode.json")?
+            ),
+        ));
+    }
+
     Ok(files)
 }
 
@@ -340,10 +433,92 @@ mod tests {
                 "specs/feature-task-board.md",
                 "specs/feature-export.md",
                 "specs/schema.yaml",
+                "scripts/check.sh",
+                "scripts/dev.sh",
+                ".opencode/commands/plan.md",
+                ".opencode/commands/build.md",
+                ".opencode/commands/fix.md",
+                ".opencode/commands/test.md",
+                ".opencode/commands/review.md",
+                ".opencode/commands/handoff.md",
+                ".opencode/commands/checkpoint.md",
             ] {
                 assert!(dir.path().join(path).exists(), "missing {path}");
             }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for script in ["scripts/check.sh", "scripts/dev.sh"] {
+                    let mode = fs::metadata(dir.path().join(script))
+                        .unwrap()
+                        .permissions()
+                        .mode();
+                    assert_eq!(mode & 0o111, 0o111, "{script} is not executable");
+                }
+            }
         }
+    }
+
+    #[test]
+    fn model_override_is_used_only_when_set() {
+        let mut answers = sample(Stack::Rust, Mode::Normal);
+        answers.model_override = Some("provider/model".into());
+        let files = generate(&answers, &BTreeSet::new()).unwrap();
+        let build = files
+            .iter()
+            .find(|f| f.path == Path::new(".opencode/commands/build.md"))
+            .unwrap();
+        assert!(build.content.contains("model: provider/model"));
+        let config = files
+            .iter()
+            .find(|f| f.path == Path::new("opencode.json"))
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&config.content).unwrap();
+        assert_eq!(parsed["model"], "provider/model");
+        assert_eq!(parsed["$schema"], crate::opencode::CONFIG_SCHEMA);
+    }
+
+    #[test]
+    fn agent_lines_follow_detected_agents() {
+        let agents: BTreeSet<String> = ["build".to_string(), "reviewer".to_string()]
+            .into_iter()
+            .collect();
+        let files = generate(&sample(Stack::Rust, Mode::Normal), &agents).unwrap();
+        let find = |path: &str| {
+            files
+                .iter()
+                .find(|f| f.path == Path::new(path))
+                .unwrap()
+                .content
+                .clone()
+        };
+        assert!(find(".opencode/commands/build.md").contains("agent: build"));
+        assert!(find(".opencode/commands/review.md").contains("agent: reviewer"));
+        assert!(!find(".opencode/commands/test.md").contains("agent:"));
+    }
+
+    #[test]
+    fn check_script_matches_stack_and_test_level() {
+        let render_script = |stack, level| {
+            let mut answers = sample(stack, Mode::Normal);
+            answers.test_level = level;
+            generate(&answers, &BTreeSet::new())
+                .unwrap()
+                .into_iter()
+                .find(|f| f.path == Path::new("scripts/check.sh"))
+                .unwrap()
+                .content
+        };
+        let rust = render_script(Stack::Rust, TestLevel::Smoke);
+        assert!(rust.contains("cargo fmt --check"));
+        assert!(rust.contains("cargo clippy"));
+        assert!(rust.contains("cargo test"));
+        let rust_none = render_script(Stack::Rust, TestLevel::None);
+        assert!(!rust_none.contains("cargo test"));
+        assert!(rust_none.contains("skip test"));
+        assert!(render_script(Stack::Python, TestLevel::Smoke).contains("ruff check"));
+        assert!(render_script(Stack::TypeScriptNode, TestLevel::Smoke).contains("npm test"));
+        assert!(render_script(Stack::Other, TestLevel::Smoke).contains("add your own stages"));
     }
 
     #[test]

@@ -1,0 +1,9 @@
+---
+description: Fill the project specs and pin versions
+{{ agent_line }}{{ model_line }}---
+Read `STATE.md` and `specs/00-overview.md`.
+{% if existing_code %}Summarize the repo structure into `specs/00-overview.md` using `ls` and `grep`; do not read every file.
+{% endif %}Fill the `<fill in>` placeholders in `specs/`, tighten each Given/When/Then scenario, pin library versions, and propose `specs/schema.yaml`.
+Edit only `specs/` and `STATE.md`. Write no application code.
+{% if hackathon %}Hackathon scope: one pass, no brainstorming round.
+{% endif %}

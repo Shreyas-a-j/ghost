@@ -69,7 +69,7 @@ fn run() -> anyhow::Result<i32> {
     let cli = Cli::parse();
     match cli.command {
         Command::New(args) => cmds::new_project(&args.dir, args.force, args.answers.as_deref()),
-        Command::Regen => cmds::not_ready(),
+        Command::Regen => cmds::regen(),
         Command::Status => cmds::not_ready(),
         Command::Check { .. } => cmds::not_ready(),
         Command::Down => cmds::not_ready(),
