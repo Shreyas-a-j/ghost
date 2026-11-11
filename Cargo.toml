@@ -1,7 +1,16 @@
 [package]
-name = "ghost"
+name = "ghost-workflow"
 version = "0.1.0"
 edition = "2021"
+description = "Generate a lean, project-level OpenCode workflow"
+license = "MIT"
+readme = "README.md"
+keywords = ["opencode", "workflow", "cli", "specs", "productivity"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "ghost"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.104"

@@ -11,6 +11,31 @@ can pick up where the last one stopped.
 
 ## Install
 
+### From crates.io
+
+```bash
+cargo install ghost-workflow --locked
+```
+
+The package is named `ghost-workflow`; the installed binary is `ghost`.
+
+### From GitHub Releases
+
+Download the archive for your platform from the repository's Releases page:
+
+- `ghost-x86_64-unknown-linux-gnu.tar.gz`
+- `ghost-aarch64-apple-darwin.tar.gz`
+- `ghost-x86_64-apple-darwin.tar.gz`
+
+Then unpack it and put `ghost` on your `PATH`:
+
+```bash
+tar -xzf ghost-x86_64-unknown-linux-gnu.tar.gz
+install -m 755 ghost ~/.local/bin/ghost
+```
+
+### From source
+
 ```bash
 cargo install --path . --locked
 ```
@@ -171,3 +196,28 @@ Chosen without stronger evidence:
 - `ghost checkpoint` assumes `git` is installed and the project is already a repository.
 - No model validation: a typed `provider/model` is passed through to OpenCode.
 - No LLM calls, networking, notifications, themes, plugins, or mouse support.
+
+## Publishing
+
+GitHub Releases are built by `.github/workflows/release.yml` when a `v*` tag is
+pushed:
+
+```bash
+git tag v0.1.0
+git push origin master --tags
+```
+
+Publishing to crates.io is free. The package name is `ghost-workflow` because the
+name `ghost` is already owned by another crate. To publish a new version:
+
+```bash
+cargo login
+cargo publish --locked
+```
+
+You can validate the package first with `cargo publish --dry-run --locked`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
