@@ -1,0 +1,26 @@
+# {{ project_name }} — Overview
+
+{{ pitch }}
+
+## Demo script
+{% for step in demo_steps %}{{ loop.index }}. {{ step }}
+{% endfor %}
+## Must-haves
+{% for feature in must_haves %}- `{{ feature.slug }}` — {{ feature.title }}
+{% endfor %}
+## Nice-to-haves
+{% if nice_to_haves %}{% for item in nice_to_haves %}- {{ item }}
+{% endfor %}{% else %}- None.
+{% endif %}
+## Stack
+- {{ stack_line }}
+- {{ mode_label }}
+
+## Risky areas
+- {{ risky_areas }}
+
+## Test level
+- {{ test_level_label }}
+
+{% if existing_code %}Existing code: summarize the repo with `ls` and `grep` in `/plan`; do not read every file.
+{% endif %}

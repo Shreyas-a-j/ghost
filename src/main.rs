@@ -2,6 +2,7 @@ mod answers;
 mod cmds;
 mod interview;
 mod opencode;
+mod render;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

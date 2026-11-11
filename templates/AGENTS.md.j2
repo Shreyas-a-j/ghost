@@ -1,0 +1,32 @@
+# {{ project_name }}
+
+{{ pitch }}
+
+Mode: {{ mode_line }}
+
+Stack: {{ stack_line }}
+
+Commands:
+- `scripts/check.sh` — verify the current change.
+- `scripts/dev.sh start|stop|status` — manage the dev server.
+- `ghost status` — compact project dashboard.
+
+Layout:
+- `STATE.md` — current focus, next steps, decisions, blockers.
+- `specs/` — overview, one file per feature, schema notes.
+- `scripts/` — deterministic check and dev helpers.
+- `.opencode/commands/` — project slash commands.
+- `src/` — application code.
+
+Rules:
+1. Read STATE.md first and update it when a task finishes.
+2. Work from one spec, `specs/feature-<slug>.md`; do not read the other specs.
+3. Verify with `scripts/check.sh`. Start servers only through `scripts/dev.sh` and stop what you started.
+4. Ask before changing `specs/schema.yaml`, auth, or anything under Risky areas.
+5. Keep renames separate from bug fixes.
+
+Risky areas: {{ risky_areas }}
+{% if skills_line %}
+Relevant skills: {{ skills_line }} — load a skill only if the task needs it.
+{% endif %}
+Planning, testing, reporting and safety rules come from the global config.
