@@ -1,5 +1,6 @@
 mod answers;
 mod cmds;
+mod interview;
 mod opencode;
 
 use clap::{Parser, Subcommand};

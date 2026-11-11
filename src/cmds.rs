@@ -8,10 +8,10 @@ pub const ANSWERS_PATH: &str = ".ghost/answers.json";
 
 pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Result<i32> {
     fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
-    let Some(answers_path) = answers_path else {
-        bail!("the interactive interview is not available yet; pass --answers <file>");
+    let answers = match answers_path {
+        Some(path) => Answers::load(path)?,
+        None => crate::interview::run(dir)?,
     };
-    let answers = Answers::load(answers_path)?;
     answers.validate_for_new(Local::now())?;
     let target = dir.join(ANSWERS_PATH);
     if target.exists() && !force {
