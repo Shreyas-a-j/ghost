@@ -214,10 +214,7 @@ impl Answers {
             self.nice_to_haves.iter().all(|s| !s.trim().is_empty()),
             "nice_to_haves must not contain empty names"
         );
-        ensure!(
-            self.skills.len() <= 5,
-            "at most 5 skills may be selected"
-        );
+        ensure!(self.skills.len() <= 5, "at most 5 skills may be selected");
         if let Some(model) = &self.model_override {
             ensure!(
                 !model.trim().is_empty(),
@@ -278,8 +275,10 @@ impl Answers {
 }
 
 pub fn parse_local_datetime(input: &str) -> Result<DateTime<Local>> {
-    let naive = NaiveDateTime::parse_from_str(input.trim(), DEADLINE_FORMAT)
-        .with_context(|| format!("expected local time formatted YYYY-MM-DD HH:MM, got {input:?}"))?;
+    let naive =
+        NaiveDateTime::parse_from_str(input.trim(), DEADLINE_FORMAT).with_context(|| {
+            format!("expected local time formatted YYYY-MM-DD HH:MM, got {input:?}")
+        })?;
     Local
         .from_local_datetime(&naive)
         .earliest()
@@ -363,7 +362,10 @@ mod tests {
     #[test]
     fn parses_local_datetime() {
         let parsed = parse_local_datetime("2099-11-14 10:00").unwrap();
-        assert_eq!(parsed.format("%Y-%m-%d %H:%M").to_string(), "2099-11-14 10:00");
+        assert_eq!(
+            parsed.format("%Y-%m-%d %H:%M").to_string(),
+            "2099-11-14 10:00"
+        );
         assert!(parse_local_datetime("2099-11-14T10:00").is_err());
     }
 

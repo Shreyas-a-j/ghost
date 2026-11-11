@@ -23,12 +23,18 @@ pub fn run(dir: &Path) -> Result<Answers> {
         .unwrap_or("project")
         .to_string();
 
-    let project_name = required(&format!("Project name [{default_name}]"), Some(&default_name))?;
+    let project_name = required(
+        &format!("Project name [{default_name}]"),
+        Some(&default_name),
+    )?;
     let pitch = required("Pitch (one sentence)", None)?;
 
     let mut demo_steps = Vec::new();
     for n in 1..=3 {
-        demo_steps.push(required(&format!("Demo step {n} (what a judge sees)"), None)?);
+        demo_steps.push(required(
+            &format!("Demo step {n} (what a judge sees)"),
+            None,
+        )?);
     }
 
     let event_name = required("Event name", Some("Hackathon"))?;
@@ -67,7 +73,8 @@ pub fn run(dir: &Path) -> Result<Answers> {
         _ => Stack::Other,
     };
 
-    let stack_details = optional("Stack details: libraries and frameworks with versions, comma-separated")?;
+    let stack_details =
+        optional("Stack details: libraries and frameworks with versions, comma-separated")?;
     let run_cmd = optional("Dev server command (blank if none)")?;
 
     let must_haves = ask_features("Must-have feature", true)?;
@@ -106,11 +113,7 @@ pub fn run(dir: &Path) -> Result<Answers> {
 
     let checkpoint_freq = match Select::new()
         .with_prompt("Checkpoint frequency")
-        .items([
-            "Before every /build",
-            "Before risky edits only",
-            "Manual",
-        ])
+        .items(["Before every /build", "Before risky edits only", "Manual"])
         .default(0)
         .interact()?
     {

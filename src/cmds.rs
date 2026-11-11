@@ -38,7 +38,9 @@ pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Resu
     println!(
         "generated {} files in {}",
         files.len(),
-        dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()).display()
+        dir.canonicalize()
+            .unwrap_or_else(|_| dir.to_path_buf())
+            .display()
     );
     println!("next: run `ghost status`, then open OpenCode and use `/plan`");
     Ok(0)
@@ -59,10 +61,7 @@ pub fn regen() -> Result<i32> {
 pub fn load_required(root: &Path) -> Result<Answers> {
     let path = root.join(ANSWERS_PATH);
     if !path.exists() {
-        bail!(
-            "run `ghost new` first (missing {})",
-            path.display()
-        );
+        bail!("run `ghost new` first (missing {})", path.display());
     }
     Answers::load(&path)
 }
@@ -110,6 +109,8 @@ fn kill_group(pid: u32, signal: &str) {
         .arg(signal)
         .arg("--")
         .arg(format!("-{pid}"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 }
 

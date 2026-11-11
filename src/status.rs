@@ -142,7 +142,10 @@ pub fn render(answers: &Answers, state_text: &str, now: DateTime<Local>, dev: &s
     let next: Vec<String> = sections
         .next
         .iter()
-        .filter_map(|line| line.strip_prefix("- [ ]").map(|rest| rest.trim().to_string()))
+        .filter_map(|line| {
+            line.strip_prefix("- [ ]")
+                .map(|rest| rest.trim().to_string())
+        })
         .take(3)
         .collect();
     let next = if next.is_empty() {
@@ -207,6 +210,8 @@ pub fn process_alive(pid: u32) -> bool {
     std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
@@ -257,7 +262,10 @@ mod tests {
     #[test]
     fn empty_and_missing_markers_degrade() {
         assert_eq!(parse_state(""), StateSections::default());
-        assert_eq!(parse_state("# State\n\nno markers here"), StateSections::default());
+        assert_eq!(
+            parse_state("# State\n\nno markers here"),
+            StateSections::default()
+        );
         let sections = parse_state("<!-- ghost:focus -->\n## Current focus\n");
         assert!(sections.focus.is_empty());
     }
@@ -266,7 +274,11 @@ mod tests {
     fn formats_remaining_time() {
         let now = Local::now();
         assert_eq!(
-            format_remaining(now + chrono::Duration::seconds(14 * 3600 + 32 * 60 + 8), now).0,
+            format_remaining(
+                now + chrono::Duration::seconds(14 * 3600 + 32 * 60 + 8),
+                now
+            )
+            .0,
             "14:32:08 left"
         );
         let (text, expired) = format_remaining(now - chrono::Duration::seconds(1), now);

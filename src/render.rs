@@ -21,7 +21,10 @@ const COMMAND_TEMPLATES: [(&str, &str); 7] = [
     ("fix", include_str!("../templates/commands/fix.md.j2")),
     ("test", include_str!("../templates/commands/test.md.j2")),
     ("review", include_str!("../templates/commands/review.md.j2")),
-    ("handoff", include_str!("../templates/commands/handoff.md.j2")),
+    (
+        "handoff",
+        include_str!("../templates/commands/handoff.md.j2"),
+    ),
     (
         "checkpoint",
         include_str!("../templates/commands/checkpoint.md.j2"),
@@ -126,7 +129,8 @@ impl View {
             hackathon: answers.mode == crate::answers::Mode::Hackathon,
             run_cmd: answers.run_cmd.clone(),
             run_cmd_quoted: shell_quote(&answers.run_cmd),
-            checkpoint_before: answers.checkpoint_freq == crate::answers::CheckpointFreq::BeforeEvery,
+            checkpoint_before: answers.checkpoint_freq
+                == crate::answers::CheckpointFreq::BeforeEvery,
             is_rust: answers.stack == Stack::Rust,
             is_python: answers.stack == Stack::Python,
             is_ts: answers.stack == Stack::TypeScriptNode,
@@ -211,10 +215,7 @@ pub fn generate(answers: &Answers, agents: &BTreeSet<String>) -> Result<Vec<Gene
             content,
         ));
     }
-    files.push(GeneratedFile::new(
-        "specs/schema.yaml",
-        render("schema")?,
-    ));
+    files.push(GeneratedFile::new("specs/schema.yaml", render("schema")?));
     files.push(GeneratedFile::new("scripts/check.sh", render("check")?).executable());
     files.push(GeneratedFile::new("scripts/dev.sh", render("dev")?).executable());
 
@@ -330,9 +331,7 @@ pub fn append_gitignore(root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::answers::{
-        Answers, CheckpointFreq, Mode, RiskArea, Stack, TeamSize, TestLevel,
-    };
+    use crate::answers::{Answers, CheckpointFreq, Mode, RiskArea, Stack, TeamSize, TestLevel};
     use chrono::{Local, TimeZone};
     use std::collections::BTreeSet;
 
@@ -340,7 +339,11 @@ mod tests {
         Answers {
             project_name: "Orbit".into(),
             pitch: "A tiny dashboard for demo day.".into(),
-            demo_steps: vec!["Open the dashboard".into(), "Add a task".into(), "See progress".into()],
+            demo_steps: vec![
+                "Open the dashboard".into(),
+                "Add a task".into(),
+                "See progress".into(),
+            ],
             event_name: "HackMIT 2026".into(),
             deadline: "2099-01-01 10:00".into(),
             team_size: TeamSize::Solo,
@@ -387,7 +390,12 @@ mod tests {
     #[test]
     fn agents_stays_short_across_combinations() {
         let empty = BTreeSet::new();
-        for stack in [Stack::Rust, Stack::Python, Stack::TypeScriptNode, Stack::Other] {
+        for stack in [
+            Stack::Rust,
+            Stack::Python,
+            Stack::TypeScriptNode,
+            Stack::Other,
+        ] {
             for mode in [Mode::Hackathon, Mode::Normal] {
                 for existing in [false, true] {
                     for level in [TestLevel::None, TestLevel::Smoke, TestLevel::PerFeature] {
@@ -455,6 +463,22 @@ mod tests {
                         .mode();
                     assert_eq!(mode & 0o111, 0o111, "{script} is not executable");
                 }
+            }
+            for command in [
+                "plan",
+                "build",
+                "fix",
+                "test",
+                "review",
+                "handoff",
+                "checkpoint",
+            ] {
+                let path = dir.path().join(format!(".opencode/commands/{command}.md"));
+                let content = fs::read_to_string(path).unwrap();
+                assert!(
+                    content.lines().count() < 25,
+                    "{command} command is too long"
+                );
             }
         }
     }
