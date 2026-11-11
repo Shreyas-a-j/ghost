@@ -3,6 +3,7 @@ mod cmds;
 mod interview;
 mod opencode;
 mod render;
+mod status;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -70,9 +71,9 @@ fn run() -> anyhow::Result<i32> {
     match cli.command {
         Command::New(args) => cmds::new_project(&args.dir, args.force, args.answers.as_deref()),
         Command::Regen => cmds::regen(),
-        Command::Status => cmds::not_ready(),
-        Command::Check { .. } => cmds::not_ready(),
-        Command::Down => cmds::not_ready(),
-        Command::Checkpoint { .. } => cmds::not_ready(),
+        Command::Status => cmds::status(),
+        Command::Check { timeout } => cmds::check(timeout),
+        Command::Down => cmds::down(),
+        Command::Checkpoint { msg } => cmds::checkpoint(&msg),
     }
 }

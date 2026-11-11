@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -106,16 +104,6 @@ pub enum CheckpointFreq {
     BeforeRisky,
     #[serde(rename = "manual")]
     Manual,
-}
-
-impl CheckpointFreq {
-    pub fn label(self) -> &'static str {
-        match self {
-            CheckpointFreq::BeforeEvery => "Before every /build",
-            CheckpointFreq::BeforeRisky => "Before risky edits only",
-            CheckpointFreq::Manual => "Manual",
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,10 +239,6 @@ impl Answers {
         parse_local_datetime(&self.deadline)
     }
 
-    pub fn must_have_slugs(&self) -> Vec<String> {
-        self.must_haves.iter().map(|f| slugify(f)).collect()
-    }
-
     pub fn risky_label(&self) -> String {
         let areas: Vec<&str> = self
             .risky_areas
@@ -283,13 +267,6 @@ impl Answers {
         } else {
             format!("{} ({})", self.stack.label(), self.stack_details.trim())
         }
-    }
-
-    pub fn has_model_override(&self) -> bool {
-        self.model_override
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|m| !m.is_empty())
     }
 
     pub fn model_line(&self) -> Option<&str> {
