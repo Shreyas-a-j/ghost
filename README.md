@@ -12,7 +12,13 @@ can pick up where the last one stopped.
 ## Install
 
 ```bash
-cargo install --path .
+cargo install --path . --locked
+```
+
+If crates.io is unreachable, use the local crate cache:
+
+```bash
+cargo install --path . --locked --offline
 ```
 
 Requires stable Rust and a Unix-like system (Ubuntu is the tested target).
