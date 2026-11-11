@@ -5,6 +5,7 @@ edition = "2021"
 description = "Generate a lean, project-level OpenCode workflow"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/Shreyas-a-j/ghost"
 keywords = ["opencode", "workflow", "cli", "specs", "productivity"]
 categories = ["command-line-utilities", "development-tools"]
 
