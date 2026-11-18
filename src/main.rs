@@ -4,6 +4,8 @@ mod interview;
 mod opencode;
 mod render;
 mod status;
+mod workflow;
+mod adapters;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -22,6 +24,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    #[command(flatten)]
+    Workflow(workflow::Action),
     /// Interview, then generate project files
     New(NewArgs),
     /// Re-render generated files from .ghost/answers.json
@@ -69,8 +73,10 @@ fn main() -> ExitCode {
 fn run() -> anyhow::Result<i32> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Workflow(action) => workflow::run(action),
         Command::New(args) => cmds::new_project(&args.dir, args.force, args.answers.as_deref()),
         Command::Regen => cmds::regen(),
+        Command::Status if workflow::initialized() => workflow::dashboard(),
         Command::Status => cmds::status(),
         Command::Check { timeout } => cmds::check(timeout),
         Command::Down => cmds::down(),
