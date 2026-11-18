@@ -1,0 +1,58 @@
+name: Ghost workflow tests
+on:
+  pull_request:
+  push:
+    branches: [ghost-2.0/workflows-and-handoffs]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run all tests
+        run: cargo test --locked --all-targets
+      - name: Exercise installed CLI across processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked
+          ghost="$PWD/target/debug/ghost"
+          project="$(mktemp -d)"
+          cd "$project"
+          git init -q
+          git config user.name Fixture
+          git config user.email fixture@example.invalid
+          echo '{}' > package.json
+          git add package.json
+          git commit -qm baseline
+          "$ghost" init
+          "$ghost" sync
+          test ! -e AGENTS.md
+          "$ghost" sync --apply
+          test -f AGENTS.md
+          test -f CLAUDE.md
+          test -f .opencode/commands/ghost-resume.md
+          "$ghost" task add "Review dependencies"
+          "$ghost" task ready 1
+          "$ghost" task start 1 --agent opencode
+          "$ghost" handoff 1 --to claude --completed "Inspected dependencies" --remaining "Review licenses" --blocker "Pending decision"
+          "$ghost" resume --accept-as claude
+          "$ghost" handoff 1 --to codex --completed "Reviewed licenses" --remaining "Report findings"
+          git commit --allow-empty -qm update
+          "$ghost" resume | grep -F "stale: Git revision changed"
+          if "$ghost" resume --accept-as codex; then exit 1; fi
+          "$ghost" handoff 1 --to codex --completed "Checked new revision" --remaining "Report findings"
+          "$ghost" resume --accept-as codex
+          "$ghost" snapshot pre-review
+          pids=()
+          for i in {1..8}; do "$ghost" task add "Parallel task $i" & pids+=("$!"); done
+          for pid in "${pids[@]}"; do wait "$pid"; done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path(".ghost/state.json").read_text())
+          assert [t["id"] for t in state["tasks"]] == list(range(1, 10))
+          assert state["tasks"][0]["owner"] == "codex"
+          assert len(json.loads(Path(".ghost/checkpoint-pre-review.json").read_text())["tasks"]) == 1
+          PY
