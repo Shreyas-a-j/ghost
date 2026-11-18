@@ -56,3 +56,23 @@ jobs:
           assert state["tasks"][0]["owner"] == "codex"
           assert len(json.loads(Path(".ghost/checkpoint-pre-review.json").read_text())["tasks"]) == 1
           PY
+  discovery:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - agent: claude
+            package: '@anthropic-ai/claude-code@2.1.59'
+          - agent: codex
+            package: '@openai/codex@0.106.0'
+          - agent: opencode
+            package: 'opencode-ai@1.2.10'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo build --locked
+      - run: npm install --global "${{ matrix.package }}"
+      - run: python3 .github/workflows/agent_discovery.py "${{ matrix.agent }}"
