@@ -349,25 +349,28 @@ fn verification_section(root: &Path, evidence: &[Evidence], task: Option<&Task>)
 }
 
 fn candidate_files(root: &Path, task: Option<&Task>) -> Result<Vec<String>> {
-    let mut paths = Vec::new();
+    // Explicit task references keep priority under budget pressure. Everything
+    // else is sorted so the packet stays deterministic.
+    let mut ordered = Vec::new();
     if let Some(task) = task {
-        paths.extend(task.references.iter().cloned());
-    }
-    for path in git_paths(root) {
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
-    if let Ok(facts) = project::discover(root) {
-        for manifest in facts.manifests {
-            if !paths.contains(&manifest) {
-                paths.push(manifest);
+        for reference in &task.references {
+            if !ordered.contains(reference) {
+                ordered.push(reference.clone());
             }
         }
     }
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
+    let mut rest = git_paths(root);
+    if let Ok(facts) = project::discover(root) {
+        rest.extend(facts.manifests);
+    }
+    rest.sort();
+    rest.dedup();
+    for path in rest {
+        if !ordered.contains(&path) {
+            ordered.push(path);
+        }
+    }
+    Ok(ordered)
 }
 
 fn git_paths(root: &Path) -> Vec<String> {
@@ -524,5 +527,17 @@ mod tests {
         let packet = build(dir.path(), None, DEFAULT_BUDGET).unwrap();
         assert!(packet.task_id.is_none());
         assert!(packet.render().contains("Project"));
+    }
+
+    #[test]
+    fn explicit_references_come_before_other_candidates() {
+        let dir = tempfile::tempdir().unwrap();
+        let task = sample(dir.path());
+        fs::write(dir.path().join("a_untracked.txt"), "other\n").unwrap();
+        let packet = build(dir.path(), Some(&task.id), DEFAULT_BUDGET).unwrap();
+        assert_eq!(
+            packet.files.first().map(|file| file.path.as_str()),
+            Some("src/lib.rs")
+        );
     }
 }
