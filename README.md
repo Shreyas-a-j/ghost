@@ -310,9 +310,13 @@ Chosen without stronger evidence:
 - Unix-only. Windows is not supported.
 - OpenCode and Claude Code get the full command surface. Codex gets instructions only.
 - Adding or removing an adapter does not clean up the previous adapter's directory.
-- Task records, the event journal, context packets, and verification evidence are
-  planned for later phases; `.ghost/state.json` currently holds focus, next, done,
-  decisions, and blockers only.
+- Task records, the event journal, handoff snapshots, context packets, and
+  verification evidence are local files under `.ghost/`; canonical workflow state
+  stays in `.ghost/state.json`.
+- No benchmark yet: token savings and context relevance are not measured.
+- `ghost verify` has no sandbox; approval is a user promise.
+- Context selection uses references, Git changes, and manifests, not embeddings.
+- Evidence is unsigned and never pruned automatically.
 - One project per directory; no multi-project view.
 - State is a single local JSON file. If teammates commit it, pull before editing and
   resolve conflicts by keeping one coherent state.

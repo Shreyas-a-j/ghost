@@ -159,7 +159,8 @@ Mitigations:
 - `Cargo.lock` is committed and installs use `--locked`.
 - Release artifacts are built from tags by CI.
 
-Gaps: no `cargo audit` job, no signed artifacts, no checksums file yet.
+Gaps: no `cargo audit` job and no signed artifacts yet. Release packages ship
+with SHA-256 checksum files.
 
 ### Agent adapter drift
 

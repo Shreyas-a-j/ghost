@@ -113,12 +113,21 @@ changed or the file disappeared. Evidence ids are appended to the task and a
 
 ## Phase 5: hardening and beta
 
-Not started.
-
-Planned:
-
-- Fault-injection tests for interrupted writes and corrupt state.
-- Signed/tagged release artifacts with checksums.
-- Beta documentation, tester program, and measured claims.
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Fault-injection tests for corrupt state, tasks, manifests, locks, temp files | Done | `tests/phase_five.rs` |
+| Release builds with SHA-256 checksums | Done | `.github/workflows/release.yml` |
+| Beta documentation and support matrix | Done | `docs/BETA.md` |
+| Changelog | Done | `CHANGELOG.md` |
+| Signed artifacts | Not started | needs a signing key and a release decision |
+| External tester program | Not started | no testers recruited |
+| Comparative context/verification benchmark | Not started | no measured claims |
 
 Exit gate: documented beta on supported operating systems.
+**Partially passed: documentation and packages exist; signing and external
+testing do not.** No token-savings number is claimed anywhere.
+
+Fault-injection coverage is deliberately local: corrupt canonical state, corrupt
+task records, corrupt manifests, a live lock versus a reclaimed dead lock, and a
+leftover temporary file. It does not simulate power loss or arbitrary filesystem
+failure.
