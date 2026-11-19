@@ -31,7 +31,13 @@ const COMMAND_TEMPLATES: [(&str, &str); 7] = [
     ),
 ];
 
-pub const GITIGNORE_LINES: [&str; 4] = [".env", ".env.*", ".ghost/dev.pid", ".ghost/dev.log"];
+pub const GITIGNORE_LINES: [&str; 5] = [
+    ".env",
+    ".env.*",
+    ".ghost/.lock",
+    ".ghost/dev.pid",
+    ".ghost/dev.log",
+];
 
 #[derive(Debug, Clone)]
 pub struct GeneratedFile {

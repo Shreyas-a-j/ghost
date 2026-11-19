@@ -124,7 +124,13 @@ files may contain local edits.
 | `ghost adapters [--json]` | Shows adapter detection, declared capabilities, and install hints. | Distinguishes "not installed" from "not supported" instead of guessing. |
 | `ghost check [--timeout 300]` | Runs `scripts/check.sh` in its own process group and kills the group on timeout. | Prevents full logs in chat and leaves no orphan processes. |
 | `ghost down` | Runs `scripts/dev.sh stop`. | Stops only the server ghost started, by its recorded process group. |
-| `ghost checkpoint [msg]` | Makes a local git commit. Refuses `.env*`, `*.pem`, `*.key`, and `id_rsa*` files. | A safe restore point before a risky change; never pushes. |
+| `ghost task add <title> [--owner a] [--ref path] [--check cmd]` | Creates a `TASK-####` record in `.ghost/tasks/` with `backlog` status. | Gives work a durable identity across sessions and agents. |
+| `ghost task start <id> [--owner a]` | Moves a task to `in_progress` and records its Git base revision. | Makes the active task explicit and comparable later. |
+| `ghost task move <id> <status>` | Enforces the documented state machine (`ready`, `in_progress`, `verification`, `done`, `blocked`, `cancelled`). | Rejects skips such as backlog to done. |
+| `ghost task list [--json]` / `ghost task show <id> [--json]` | Lists or prints task records. | Machine-readable state for scripts and agents. |
+| `ghost handoff [--note text]` | Freezes revision, branch, state, tasks, and evidence ids into `.ghost/handoff.json`. | Lets another agent resume without re-reading everything. |
+| `ghost resume` | Prints the last handoff beside the current revision; exits 2 when stale. | Flags changed files instead of silently trusting an old summary. |
+| `ghost checkpoint [msg]` | Makes a local git commit and records a checkpoint event. Refuses `.env*`, `*.pem`, `*.key`, and `id_rsa*` files. | A safe restore point before a risky change; never pushes. |
 
 `--adapter` is repeatable. With no flag, Ghost reuses the saved selection or
 defaults to OpenCode. Every command except `new`, `init`, and `adapters` exits 1
@@ -182,6 +188,12 @@ content and without duplicating them:
 - `scripts/check.sh` prints `ok <stage>` or a failure summary, never a wall of logs.
 - `scripts/dev.sh` records a PID and kills only that process group, so servers do not
   survive a forgotten session.
+- `ghost status` also reports task counts and the current `in_progress` or
+  `verification` task when one exists.
+- `ghost handoff` / `ghost resume` replace guessing about the previous session:
+  the snapshot names the revision it was taken at and resume flags a mismatch.
+- Every task transition and checkpoint appends one redacted line to
+  `.ghost/events.jsonl`, so history survives without storing prompts or logs.
 - `ghost checkpoint` refuses likely secrets before creating a local commit.
 - The generated-file manifest prevents a re-render from silently discarding an edit
   you made to a spec, command, or script.

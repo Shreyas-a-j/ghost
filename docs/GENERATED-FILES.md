@@ -11,7 +11,10 @@ truth. That split decides who may edit what and when Ghost may overwrite a file.
 | User-editable source | `.ghost/answers.json` | Read and rewritten by Ghost. Edit it, then run `ghost regen --force` when rendered files conflict. |
 | Generated views | `AGENTS.md`, `CLAUDE.md`, `STATE.md`, `specs/00-overview.md`, `specs/feature-<slug>.md`, `scripts/check.sh`, `scripts/dev.sh`, `.opencode/commands/*.md`, `.claude/commands/*.md`, `opencode.json` | Ghost owns the initial content. Local edits are detected through the manifest. |
 | User-owned scaffold | `specs/schema.yaml` | Created once as a TODO scaffold; later edits are treated like any generated view for overwrite purposes. |
-| Append-only metadata | `.gitignore` | Ghost appends four entries without duplicating or removing existing lines. |
+| Append-only metadata | `.gitignore` | Ghost appends five entries without duplicating or removing existing lines. |
+| Task records | `.ghost/tasks/<id>.json` | Written atomically by `ghost task`; never rendered or overwritten by `new`/`init`/`regen`. |
+| Journal | `.ghost/events.jsonl` | Append-only, metadata-only. Ghost never rewrites past lines. |
+| Handoff snapshot | `.ghost/handoff.json` | Replaced atomically by each `ghost handoff`. |
 | Evidence (future) | `.ghost/evidence/*.json` | Reserved for Phase 4 verification runs. |
 
 ## Adapter surfaces

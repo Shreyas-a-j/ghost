@@ -17,9 +17,10 @@ project/
     dev.pid                 # runtime, ignored
     dev.log                 # runtime, ignored
     tasks/<id>.json         # Phase 3
-    decisions/<id>.md       # Phase 3
+    decisions/<id>.md       # reserved
     evidence/<run-id>.json  # Phase 4
     events.jsonl            # Phase 3
+    handoff.json            # Phase 3
   AGENTS.md                 # OpenCode and/or Codex
   CLAUDE.md                 # Claude Code
   .opencode/commands/       # OpenCode only
@@ -134,6 +135,75 @@ Changes in v1 schema compatibility:
 
 The JSON shape stays backward compatible: a v1 deadline string still parses.
 
+## `tasks/<id>.json`
+
+One record per task. Ids are `TASK-0001` upward and never reused.
+
+```json
+{
+  "schema_version": 1,
+  "id": "TASK-0001",
+  "title": "Add refresh-token rotation",
+  "status": "verification",
+  "owner_agent": "opencode",
+  "base_revision": "f428c36...",
+  "references": ["src/auth.rs"],
+  "acceptance_checks": ["cargo test"],
+  "evidence_ids": [],
+  "created_at": "2026-11-19T12:00:00+05:30",
+  "updated_at": "2026-11-19T12:00:00+05:30"
+}
+```
+
+States and the only allowed transitions:
+
+| From | To |
+| --- | --- |
+| `backlog` | `ready`, `in_progress`, `cancelled` |
+| `ready` | `in_progress`, `blocked`, `cancelled` |
+| `in_progress` | `verification`, `blocked`, `cancelled` |
+| `verification` | `done`, `in_progress`, `blocked`, `cancelled` |
+| `blocked` | `ready`, `in_progress`, `cancelled` |
+| `done`, `cancelled` | terminal |
+
+`base_revision` is filled from Git HEAD when a task first starts. `references`
+must be relative paths inside the project; `..`, absolute paths, and symlinks are
+rejected by the same validator used for writes.
+
+## `events.jsonl`
+
+Append-only JSON Lines, one event per line. Every event has `schema_version`,
+`timestamp`, and `kind`; task, revision, and metadata fields are optional.
+
+```json
+{"schema_version":1,"timestamp":"2026-11-19T12:00:00+05:30","kind":"task_transition","task_id":"TASK-0001","from":"backlog","to":"in_progress","metadata":{"owner":"opencode"}}
+```
+
+Kinds: `task_created`, `task_transition`, `handoff`, `resume`, `checkpoint`.
+Values pass through redaction (control characters stripped, whitespace
+collapsed, 200-character cap). Raw prompts, command output, and file contents
+must not be written. Malformed lines are skipped on read so one damaged line
+cannot block the CLI.
+
+## `handoff.json`
+
+```json
+{
+  "schema_version": 1,
+  "created_at": "2026-11-19T12:00:00+05:30",
+  "revision": "f428c36...",
+  "branch": "main",
+  "dirty": false,
+  "state": { "schema_version": 1, "focus": [], "next": [], "done": [], "decisions": [], "blockers": [], "updated_at": "2026-11-19T12:00:00+05:30" },
+  "tasks": [{"id": "TASK-0001", "title": "Add refresh-token rotation", "status": "verification"}],
+  "evidence_ids": [],
+  "note": "resume here"
+}
+```
+
+`resume` compares `revision` with the current HEAD. A mismatch is reported as
+stale and exits `2`; Ghost does not patch files or merge state automatically.
+
 ## Versioning and migration policy
 
 - Readers reject an unknown future `schema_version` with a clear error.
@@ -147,8 +217,7 @@ The JSON shape stays backward compatible: a v1 deadline string still parses.
 
 | Phase | Documents |
 | --- | --- |
-| 3 | `tasks/<id>.json`, `events.jsonl`, `decisions/<id>.md` |
 | 4 | `evidence/<run-id>.json` with command, cwd, exit code, revision, redaction policy |
 | 5 | migration backups and compatibility fixtures |
 
-Reserved paths are not created yet. Nothing in v1 reads them.
+`decisions/<id>.md` remains reserved but no command writes it yet.

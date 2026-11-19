@@ -64,10 +64,16 @@ Additions:
 - `ghost regen --force` for conscious overwrite of changed generated files.
 - `--adapter <opencode|claude|codex>` on `new`, `init`, and `regen`; repeatable.
 - `ghost adapters [--json]` for detection and capability reporting.
+- `ghost task add|start|move|list|show` for structured work.
+- `ghost handoff [--note]` and `ghost resume` for cross-agent continuation.
+- `ghost checkpoint` also records a checkpoint event in the journal.
 
 No v1 command has been removed. `ghost new` remains the hackathon-oriented
 interview path; `ghost init` is the generic path. With no `--adapter` flag,
 Ghost reuses the saved selection or defaults to OpenCode.
+
+Exit codes: `resume` returns `0` when the working revision matches the snapshot
+and `2` when it is stale. Missing or invalid input still returns `1`.
 
 ## Input compatibility
 
@@ -93,8 +99,8 @@ generation.
 
 - Codex receives instructions and shared views but no project command files.
 - Claude Code receives no model or settings configuration.
-- No task state machine, event journal, context packet, or verification evidence
-  yet; those are Phases 3 and 4.
+- No context packet or verification evidence yet; that is Phase 4. Task state,
+  the event journal, handoff snapshots, and checkpoint metadata exist.
 - No model validation; a typed `provider/model` is passed through to OpenCode.
 - `regen` does not delete specs for removed features or directories for removed
   adapters.

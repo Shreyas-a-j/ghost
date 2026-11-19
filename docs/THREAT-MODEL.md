@@ -88,6 +88,21 @@ Mitigations:
 Residual risk: the name-based checkpoint filter is incomplete. Secrets with other
 names can still be committed by the user.
 
+### Journal and handoff
+
+`ghost task`, `ghost handoff`, and `ghost resume` read and write local state only.
+
+Mitigations:
+
+- Task ids are validated as `TASK-` plus digits; arbitrary paths cannot become task files.
+- Journal fields are redacted and capped before append.
+- Handoff notes pass through the same redaction.
+- `resume` never writes canonical state; it reports staleness and exits non-zero.
+- All journal and task writes happen under the existing `.ghost/.lock`.
+
+Residual risk: redaction is heuristic. A secret typed into a task title or note
+can still be stored; keep prompts and credentials out of both.
+
 ### Corrupt or incompatible state
 
 A partial write or future schema could break a project.

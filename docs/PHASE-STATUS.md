@@ -52,16 +52,35 @@ files, so its generated state uses file-based next steps instead of `/plan`.
 
 ## Phase 3: task engine and journal
 
-Not started.
-
-Planned:
-
-- `tasks/<id>.json` with the documented transitions.
-- `events.jsonl` with redacted metadata only.
-- Handoff/resume snapshots with revision checks.
-- Checkpoint metadata.
+| Item | Status | Evidence |
+| --- | --- | --- |
+| `tasks/<id>.json` with the documented transitions | Done | `src/tasks.rs`, `tests/phase_three.rs` |
+| `events.jsonl` with redacted metadata only | Done | `src/events.rs`, `Event::redact` |
+| Handoff/resume snapshots with revision checks | Done | `src/handoff.rs`, `.ghost/handoff.json` |
+| Checkpoint metadata | Done | `checkpoint` event appended before the commit |
+| Task summary in `ghost status` | Done | `tasks::dashboard` |
+| ADR for task records, journal, and handoff | Done | `docs/adr/0002-task-engine-and-journal.md` |
 
 Exit gate: interrupted and cross-agent sessions recover consistently.
+**Passed by tests.**
+
+Task states are `backlog`, `ready`, `in_progress`, `verification`, `done`, plus
+`blocked` and `cancelled`. Transitions are enforced in `TaskStatus::can_transition_to`;
+a failed verification returns to `in_progress` rather than skipping straight to
+`done`. Each task records `base_revision` when it starts, so later comparison can
+tell whether the work drifted from the revision it was planned on.
+
+The journal is append-only JSONL and stores metadata only. Notes, owners, and
+messages pass through `events::redact`, which strips control characters,
+collapses whitespace, and caps each field at 200 characters. Raw prompts, logs,
+and source content are never written.
+
+`ghost handoff` freezes revision, branch, dirty flag, workflow state, task
+summaries, evidence ids, and an optional note. `ghost resume` never rewrites
+canonical state: it reports the snapshot beside the current revision and exits
+`2` when the two differ, so an agent knows to re-read changed files before
+continuing. Checkpoint metadata is written before `git add -A`, so a successful
+checkpoint commit contains its own journal entry.
 
 ## Phase 4: context and verification
 

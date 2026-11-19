@@ -225,6 +225,158 @@ pub fn adapters(json: bool) -> Result<i32> {
     Ok(0)
 }
 
+pub fn task_add(
+    title: &[String],
+    owner: Option<&str>,
+    references: &[String],
+    checks: &[String],
+    json: bool,
+) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let title = title.join(" ");
+    let lock = FileLock::acquire(root)?;
+    let task = crate::tasks::add(root, &title, owner, references, checks, &lock)?;
+    crate::events::append(
+        root,
+        &crate::events::Event::task_created(&task.id, &task.title, task.owner_agent.as_deref()),
+        &lock,
+    )?;
+    print_task(&task, json)?;
+    Ok(0)
+}
+
+pub fn task_start(id: &str, owner: Option<&str>) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let lock = FileLock::acquire(root)?;
+    let (task, previous) = crate::tasks::start(root, id, owner, &lock)?;
+    if let Some(previous) = previous {
+        crate::events::append(
+            root,
+            &crate::events::Event::task_transition(
+                &task.id,
+                previous.as_str(),
+                task.status.as_str(),
+                task.owner_agent.as_deref(),
+            ),
+            &lock,
+        )?;
+    }
+    print_task(&task, false)?;
+    Ok(0)
+}
+
+pub fn task_move(id: &str, status: &str) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let target = crate::tasks::TaskStatus::parse(status)?;
+    let lock = FileLock::acquire(root)?;
+    let (task, previous) = crate::tasks::transition(root, id, target, &lock)?;
+    crate::events::append(
+        root,
+        &crate::events::Event::task_transition(
+            &task.id,
+            previous.as_str(),
+            task.status.as_str(),
+            task.owner_agent.as_deref(),
+        ),
+        &lock,
+    )?;
+    print_task(&task, false)?;
+    Ok(0)
+}
+
+pub fn task_list(json: bool) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let tasks = crate::tasks::list(root)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&tasks).context("could not serialize tasks")?
+        );
+        return Ok(0);
+    }
+    if tasks.is_empty() {
+        println!("no tasks");
+        return Ok(0);
+    }
+    for task in tasks {
+        println!(
+            "{:<10} {:<12} {}",
+            task.id,
+            task.status.as_str(),
+            task.title
+        );
+    }
+    Ok(0)
+}
+
+pub fn task_show(id: &str, json: bool) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let task = crate::tasks::load(root, id)?;
+    print_task(&task, json)?;
+    Ok(0)
+}
+
+fn print_task(task: &crate::tasks::Task, json: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(task).context("could not serialize task")?
+        );
+    } else {
+        println!("{} {}: {}", task.id, task.status.as_str(), task.title);
+    }
+    Ok(())
+}
+
+pub fn handoff(note: Option<&str>) -> Result<i32> {
+    let root = Path::new(".");
+    let answers = load_required(root)?;
+    let lock = FileLock::acquire(root)?;
+    let has_commands = resolve_adapters(root, &[])?
+        .iter()
+        .any(|adapter| adapter.supports_commands());
+    let state = crate::state::ensure_state(root, &lock, &answers, has_commands)?;
+    let snapshot = crate::handoff::capture(root, &state, note, &lock)?;
+    println!(
+        "handoff saved: {} tasks, revision {}",
+        snapshot.tasks.len(),
+        snapshot
+            .revision
+            .as_deref()
+            .map(|revision| &revision[..revision.len().min(8)])
+            .unwrap_or("none")
+    );
+    Ok(0)
+}
+
+pub fn resume() -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let lock = FileLock::acquire(root)?;
+    let Some(report) = crate::handoff::resume(root, &lock)? else {
+        bail!("no handoff snapshot; run `ghost handoff` first");
+    };
+    println!("{}", report.render());
+    Ok(if report.stale { 2 } else { 0 })
+}
+
+fn record_checkpoint(root: &Path, message: &str) -> Result<()> {
+    let lock = FileLock::acquire(root)?;
+    let revision = crate::project::discover(root)?
+        .git
+        .and_then(|git| git.revision);
+    crate::events::append(
+        root,
+        &crate::events::Event::checkpoint(revision.as_deref(), message),
+        &lock,
+    )
+}
+
 pub fn check(timeout: u64) -> Result<i32> {
     let root = Path::new(".");
     load_required(root)?;
@@ -318,6 +470,11 @@ pub fn checkpoint(args: &[String]) -> Result<i32> {
     };
     let commit_message = format!("checkpoint: {message}");
 
+    // Record the event before staging so the checkpoint commit includes it.
+    // The revision names the parent commit the checkpoint was built on.
+    if let Err(err) = record_checkpoint(root, &message) {
+        eprintln!("ghost: warning: could not record checkpoint metadata: {err:#}");
+    }
     let add = Command::new("git")
         .args(["add", "-A"])
         .current_dir(root)

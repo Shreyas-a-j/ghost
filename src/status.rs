@@ -273,6 +273,9 @@ pub fn run(root: &Path) -> Result<i32> {
             println!("{}", render(&answers, &state_text, now, &dev));
         }
     }
+    if let Some(tasks) = crate::tasks::dashboard(root)? {
+        println!("{tasks}");
+    }
     Ok(0)
 }
 
