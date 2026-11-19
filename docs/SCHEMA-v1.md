@@ -21,6 +21,7 @@ project/
     evidence/<run-id>.json  # Phase 4
     events.jsonl            # Phase 3
     handoff.json            # Phase 3
+    verify.json             # optional, user-owned allowlist
   AGENTS.md                 # OpenCode and/or Codex
   CLAUDE.md                 # Claude Code
   .opencode/commands/       # OpenCode only
@@ -204,6 +205,53 @@ cannot block the CLI.
 `resume` compares `revision` with the current HEAD. A mismatch is reported as
 stale and exits `2`; Ghost does not patch files or merge state automatically.
 
+## `evidence/<run-id>.json`
+
+One record per verification run. `run-id` is `RUN-<timestamp>`; a suffix is
+added only on a same-second collision.
+
+```json
+{
+  "schema_version": 1,
+  "id": "RUN-20261119T120000",
+  "task_id": "TASK-0001",
+  "command": "cargo test",
+  "cwd": ".",
+  "started_at": "2026-11-19T12:00:00+05:30",
+  "ended_at": "2026-11-19T12:00:04+05:30",
+  "duration_ms": 4000,
+  "exit_code": 0,
+  "timed_out": false,
+  "revision": "f428c36...",
+  "dirty": false,
+  "redaction": "control characters stripped; 40-line tail; 200 characters per line",
+  "source_hashes": {
+    "Cargo.toml": "<sha256>",
+    "src/auth.rs": "<sha256>"
+  },
+  "output_tail": ["test result: ok. 12 passed"]
+}
+```
+
+`source_hashes` covers task references, detected manifests, common lockfiles,
+and—when no task is selected—Git-changed files. A run is stale when a recorded
+file is missing or its hash differs. `verify --list` reports that flag; Ghost
+never deletes old evidence automatically.
+
+## `verify.json`
+
+Optional, user-owned approval list. Ghost never rewrites this file.
+
+```json
+{
+  "schema_version": 1,
+  "allow": ["cargo test", "npm test"]
+}
+```
+
+Matching is exact after trimming. `ghost verify --approve` bypasses the list for
+one run. When the file is absent, no command is pre-approved.
+
 ## Versioning and migration policy
 
 - Readers reject an unknown future `schema_version` with a clear error.
@@ -217,7 +265,6 @@ stale and exits `2`; Ghost does not patch files or merge state automatically.
 
 | Phase | Documents |
 | --- | --- |
-| 4 | `evidence/<run-id>.json` with command, cwd, exit code, revision, redaction policy |
 | 5 | migration backups and compatibility fixtures |
 
 `decisions/<id>.md` remains reserved but no command writes it yet.

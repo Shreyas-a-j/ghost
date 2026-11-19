@@ -60,6 +60,7 @@ files, so its generated state uses file-based next steps instead of `/plan`.
 | Checkpoint metadata | Done | `checkpoint` event appended before the commit |
 | Task summary in `ghost status` | Done | `tasks::dashboard` |
 | ADR for task records, journal, and handoff | Done | `docs/adr/0002-task-engine-and-journal.md` |
+| ADR for context packets and verification | Done | `docs/adr/0003-context-and-verification.md` |
 
 Exit gate: interrupted and cross-agent sessions recover consistently.
 **Passed by tests.**
@@ -84,15 +85,31 @@ checkpoint commit contains its own journal entry.
 
 ## Phase 4: context and verification
 
-Not started.
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Deterministic context packet with a token budget | Done | `src/context.rs`, `tests/phase_four.rs` |
+| Approved command execution with evidence capture | Done | `src/verify.rs`, `.ghost/verify.json` |
+| Evidence includes command, cwd, times, exit code, revision, redaction | Done | `Evidence` record |
+| Stale-evidence detection when sources change | Done | SHA-256 `source_hashes`, `verify --list` |
+| Journal and task links for each verification | Done | `verification` event, `evidence_ids` |
 
-Planned:
+Exit gate: benchmarks and stale-evidence tests pass. **Stale-evidence and
+approval tests pass; no comparative benchmark has been run.**
 
-- Deterministic context packet selection with a token budget.
-- Approved command execution and evidence capture.
-- Stale-evidence detection when source or dependencies change.
+The context packet is built in priority order: task identity and acceptance
+criteria, blockers, decisions, latest changes, verification history, then file
+excerpts. Optional sections are dropped when the conservative `chars/4` estimate
+exceeds `--budget`; an excerpt is truncated rather than blowing the budget. The
+packet states that the estimate is uncertain and does not use embeddings.
 
-Exit gate: benchmarks and stale-evidence tests pass.
+`ghost verify` requires either `--approve` or an exact match in
+`.ghost/verify.json`. It runs in its own process group with a timeout, keeps the
+last 40 redacted output lines, and writes `.ghost/evidence/<run-id>.json` with
+the command, working directory, timestamps, exit code, repository revision,
+dirty flag, redaction policy, and SHA-256 hashes of task references, manifests,
+and lockfiles. `verify --list` marks a record stale when any of those hashes
+changed or the file disappeared. Evidence ids are appended to the task and a
+`verification` event is added to the journal.
 
 ## Phase 5: hardening and beta
 

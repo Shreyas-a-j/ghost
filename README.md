@@ -131,6 +131,8 @@ files may contain local edits.
 | `ghost handoff [--note text]` | Freezes revision, branch, state, tasks, and evidence ids into `.ghost/handoff.json`. | Lets another agent resume without re-reading everything. |
 | `ghost resume` | Prints the last handoff beside the current revision; exits 2 when stale. | Flags changed files instead of silently trusting an old summary. |
 | `ghost checkpoint [msg]` | Makes a local git commit and records a checkpoint event. Refuses `.env*`, `*.pem`, `*.key`, and `id_rsa*` files. | A safe restore point before a risky change; never pushes. |
+| `ghost context [--task id] [--budget n] [--json]` | Builds a deterministic packet: objective, acceptance checks, blockers, decisions, recent changes, verification history, and budgeted file excerpts. | One focused read instead of loading the repository. |
+| `ghost verify [--task id] [--approve] [--timeout n] [--list] [-- cmd]` | Runs an approved command, saves exit code, timings, revision, output tail, and source hashes to `.ghost/evidence/`. | Makes checks evidence-backed and stale results visible. |
 
 `--adapter` is repeatable. With no flag, Ghost reuses the saved selection or
 defaults to OpenCode. Every command except `new`, `init`, and `adapters` exits 1
@@ -154,6 +156,11 @@ scripts/dev.sh                  # start | stop | status, PID-tracked
 .ghost/project.json             # detected stacks, manifests, Git facts
 .ghost/state.json               # canonical workflow state
 .ghost/generated-manifest.json  # SHA-256 for conflict detection
+.ghost/tasks/TASK-0001.json     # structured task records
+.ghost/events.jsonl             # append-only, redacted journal
+.ghost/handoff.json             # last cross-agent snapshot
+.ghost/evidence/<run-id>.json   # verification evidence
+.ghost/verify.json              # optional command allowlist; user-owned
 opencode.json                   # only when a model override was entered
 ```
 
@@ -172,6 +179,7 @@ content and without duplicating them:
 ```text
 .env
 .env.*
+.ghost/.lock
 .ghost/dev.pid
 .ghost/dev.log
 ```
@@ -194,6 +202,11 @@ content and without duplicating them:
   the snapshot names the revision it was taken at and resume flags a mismatch.
 - Every task transition and checkpoint appends one redacted line to
   `.ghost/events.jsonl`, so history survives without storing prompts or logs.
+- `ghost context` selects files deterministically from task references, Git
+  changes, and manifests, then truncates to a token budget instead of dumping
+  the repository.
+- `ghost verify` only runs an approved command and stores a short output tail
+  plus source hashes; `--list` marks evidence stale when those files change.
 - `ghost checkpoint` refuses likely secrets before creating a local commit.
 - The generated-file manifest prevents a re-render from silently discarding an edit
   you made to a spec, command, or script.

@@ -67,13 +67,18 @@ Additions:
 - `ghost task add|start|move|list|show` for structured work.
 - `ghost handoff [--note]` and `ghost resume` for cross-agent continuation.
 - `ghost checkpoint` also records a checkpoint event in the journal.
+- `ghost context [--task] [--budget] [--json]` for budgeted context packets.
+- `ghost verify [--task] [--approve] [--list] [-- cmd]` for approved checks and
+  evidence records.
 
 No v1 command has been removed. `ghost new` remains the hackathon-oriented
 interview path; `ghost init` is the generic path. With no `--adapter` flag,
 Ghost reuses the saved selection or defaults to OpenCode.
 
 Exit codes: `resume` returns `0` when the working revision matches the snapshot
-and `2` when it is stale. Missing or invalid input still returns `1`.
+and `2` when it is stale. `verify` returns the last non-zero command exit code,
+`124` on timeout, and `1` for a missing approval. Missing or invalid input still
+returns `1`.
 
 ## Input compatibility
 
@@ -99,8 +104,12 @@ generation.
 
 - Codex receives instructions and shared views but no project command files.
 - Claude Code receives no model or settings configuration.
-- No context packet or verification evidence yet; that is Phase 4. Task state,
-  the event journal, handoff snapshots, and checkpoint metadata exist.
+- No comparative context-retrieval benchmark yet; the packet is deterministic
+  and budgeted but unmeasured against a full-context baseline.
+- No sandbox: `verify` approval is a user promise, not an OS-level boundary.
+- Context selection is heuristic (references, Git changes, manifests) and does
+  not use embeddings.
+- Evidence is not signed; it is a local record, not a tamper-proof attestation.
 - No model validation; a typed `provider/model` is passed through to OpenCode.
 - `regen` does not delete specs for removed features or directories for removed
   adapters.

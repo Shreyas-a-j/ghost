@@ -19,6 +19,7 @@ pub enum EventKind {
     Handoff,
     Resume,
     Checkpoint,
+    Verification,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +100,28 @@ impl Event {
         let mut event = Self::new(EventKind::Checkpoint);
         event.revision = revision.map(str::to_string);
         event.meta("message", message);
+        event
+    }
+
+    pub fn verification(
+        task_id: Option<&str>,
+        run_id: &str,
+        command: &str,
+        exit_code: i32,
+        timed_out: bool,
+        revision: Option<&str>,
+    ) -> Self {
+        let mut event = Self::new(EventKind::Verification);
+        if let Some(task_id) = task_id {
+            event = event.with_task(task_id);
+        }
+        event.revision = revision.map(str::to_string);
+        event.meta("run", run_id);
+        event.meta("command", command);
+        event.meta("exit_code", &exit_code.to_string());
+        if timed_out {
+            event.meta("timed_out", "true");
+        }
         event
     }
 

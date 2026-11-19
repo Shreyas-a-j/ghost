@@ -1,6 +1,7 @@
 mod adapter;
 mod answers;
 mod cmds;
+mod context;
 mod events;
 mod handoff;
 mod interview;
@@ -11,6 +12,7 @@ mod render;
 mod state;
 mod status;
 mod tasks;
+mod verify;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -71,6 +73,36 @@ enum Command {
     },
     /// Show the last handoff and flag stale context
     Resume,
+    /// Build a focused context packet for a task or the project
+    Context {
+        /// Task id such as TASK-0001
+        #[arg(long)]
+        task: Option<String>,
+        /// Token budget for the packet
+        #[arg(long, default_value_t = context::DEFAULT_BUDGET)]
+        budget: usize,
+        /// Print machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run an approved check and save evidence
+    Verify {
+        /// Task id whose acceptance checks should run
+        #[arg(long)]
+        task: Option<String>,
+        /// Approve this run explicitly instead of relying on the allowlist
+        #[arg(long)]
+        approve: bool,
+        /// Timeout in seconds per command
+        #[arg(long, default_value_t = 300)]
+        timeout: u64,
+        /// List saved evidence and stale flags
+        #[arg(long)]
+        list: bool,
+        /// Command to run; use `-- <command>` for flags
+        #[arg(last = true)]
+        command: Vec<String>,
+    },
     /// Make a local git checkpoint commit
     Checkpoint {
         /// Checkpoint message
@@ -228,6 +260,14 @@ fn run() -> anyhow::Result<i32> {
         },
         Command::Handoff { note } => cmds::handoff(note.as_deref()),
         Command::Resume => cmds::resume(),
+        Command::Context { task, budget, json } => cmds::context(task.as_deref(), budget, json),
+        Command::Verify {
+            task,
+            approve,
+            timeout,
+            list,
+            command,
+        } => cmds::verify(task.as_deref(), approve, timeout, list, &command),
         Command::Checkpoint { msg } => cmds::checkpoint(&msg),
     }
 }

@@ -377,6 +377,88 @@ fn record_checkpoint(root: &Path, message: &str) -> Result<()> {
     )
 }
 
+pub fn context(task: Option<&str>, budget: usize, json: bool) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+    let packet = crate::context::build(root, task, budget)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&packet).context("could not serialize context packet")?
+        );
+    } else {
+        print!("{}", packet.render());
+    }
+    Ok(0)
+}
+
+pub fn verify(
+    task: Option<&str>,
+    approve: bool,
+    timeout: u64,
+    list: bool,
+    command: &[String],
+) -> Result<i32> {
+    let root = Path::new(".");
+    load_required(root)?;
+
+    if list {
+        let evidence = crate::verify::list(root)?;
+        if evidence.is_empty() {
+            println!("no verification evidence");
+            return Ok(0);
+        }
+        for record in evidence {
+            let stale = crate::verify::is_stale(root, &record);
+            let owner = record
+                .task_id
+                .as_deref()
+                .map(|task| format!(" [{task}]"))
+                .unwrap_or_default();
+            println!(
+                "{}{owner}{}",
+                record.summary(),
+                if stale { " [stale]" } else { "" }
+            );
+        }
+        return Ok(0);
+    }
+
+    let commands: Vec<String> = if !command.is_empty() {
+        vec![command.join(" ")]
+    } else if let Some(id) = task {
+        let task = crate::tasks::load(root, id)?;
+        if task.acceptance_checks.is_empty() {
+            bail!("{id} has no acceptance checks; pass a command after --");
+        }
+        task.acceptance_checks
+    } else {
+        bail!("pass a command after -- or select --task");
+    };
+
+    for candidate in &commands {
+        if !crate::verify::is_allowed(root, candidate, approve)? {
+            bail!(
+                "command not approved: {candidate}\npass --approve or add it to .ghost/verify.json (exact match)"
+            );
+        }
+    }
+
+    let lock = FileLock::acquire(root)?;
+    let mut code = 0;
+    for candidate in commands {
+        let evidence = crate::verify::run(root, task, &candidate, timeout, &lock)?;
+        println!("{}", evidence.summary());
+        for line in &evidence.output_tail {
+            println!("  {line}");
+        }
+        if evidence.exit_code != 0 {
+            code = evidence.exit_code;
+        }
+    }
+    Ok(code)
+}
+
 pub fn check(timeout: u64) -> Result<i32> {
     let root = Path::new(".");
     load_required(root)?;

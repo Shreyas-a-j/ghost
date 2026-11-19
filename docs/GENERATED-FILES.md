@@ -15,7 +15,8 @@ truth. That split decides who may edit what and when Ghost may overwrite a file.
 | Task records | `.ghost/tasks/<id>.json` | Written atomically by `ghost task`; never rendered or overwritten by `new`/`init`/`regen`. |
 | Journal | `.ghost/events.jsonl` | Append-only, metadata-only. Ghost never rewrites past lines. |
 | Handoff snapshot | `.ghost/handoff.json` | Replaced atomically by each `ghost handoff`. |
-| Evidence (future) | `.ghost/evidence/*.json` | Reserved for Phase 4 verification runs. |
+| Verification evidence | `.ghost/evidence/<run-id>.json` | Written atomically by `ghost verify`; never overwritten. |
+| Verify allowlist | `.ghost/verify.json` | Optional and user-owned; Ghost reads it and never writes it. |
 
 ## Adapter surfaces
 

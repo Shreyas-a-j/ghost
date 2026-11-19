@@ -337,6 +337,11 @@ pub fn dashboard(root: &Path) -> Result<Option<String>> {
     Ok(Some(line))
 }
 
+/// Reject a task id that is not a plain `TASK-0001` name.
+pub fn validate_id(id: &str) -> Result<()> {
+    ensure_id(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

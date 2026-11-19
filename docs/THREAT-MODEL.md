@@ -62,7 +62,7 @@ Mitigations:
 
 ### Command execution
 
-`ghost check` and `ghost down` execute project scripts.
+`ghost check`, `ghost verify`, and `ghost down` execute project commands.
 
 Mitigations:
 
@@ -102,6 +102,35 @@ Mitigations:
 
 Residual risk: redaction is heuristic. A secret typed into a task title or note
 can still be stored; keep prompts and credentials out of both.
+
+### Verification execution and evidence
+
+`ghost verify` runs project commands and stores a short output tail.
+
+Mitigations:
+
+- A command runs only with `--approve` or an exact match in `.ghost/verify.json`.
+- Commands run in their own process group with a timeout; the group is killed.
+- Only the last 40 lines are stored, each redacted and capped at 200 characters.
+- Evidence records a redaction policy, revision, and source hashes, not full logs.
+- Raw output is written to a temporary file under `.ghost/` and deleted after use.
+- Ghost never pushes, deploys, or uploads anything.
+
+Residual risk: the allowlist is a promise by the user, not a sandbox. An
+approved command has the same access as the user's shell.
+
+### Context packet disclosure
+
+`ghost context` prints file excerpts to stdout.
+
+Mitigations:
+
+- Only relative paths inside the project are read; symlinks, binaries, and files
+  over 256 KiB are skipped.
+- `.ghost/`, `target/`, and `node_modules/` are excluded from Git-derived picks.
+- The packet is bounded by `--budget`, so a large file cannot flood the session.
+- Exclusion is name- and size-based, not secret detection. Review before pasting
+  a packet into a remote model.
 
 ### Corrupt or incompatible state
 
