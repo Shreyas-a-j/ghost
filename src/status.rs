@@ -92,7 +92,6 @@ pub fn progress_fraction(answers: &Answers, now: DateTime<Local>) -> f64 {
     let elapsed = (now - answers.created_at).num_seconds();
     (elapsed as f64 / total as f64).clamp(0.0, 1.0)
 }
-
 fn gauge(frac: f64, width: usize) -> String {
     let filled = ((frac * width as f64).round() as usize).min(width);
     format!("{}{}", "#".repeat(filled), "-".repeat(width - filled))
@@ -109,30 +108,69 @@ fn color_name(seconds_left: i64, expired: bool) -> &'static str {
 }
 
 pub fn render(answers: &Answers, state_text: &str, now: DateTime<Local>, dev: &str) -> String {
-    let deadline = answers.deadline_at().unwrap_or(now);
-    let seconds_left = (deadline - now).num_seconds();
-    let (remaining, expired) = format_remaining(deadline, now);
-    let frac = progress_fraction(answers, now);
-    let percent = (frac * 100.0).round() as u32;
-    let color = color_name(seconds_left, expired);
-    let tty = Term::stdout().is_term();
+    render_sections(
+        answers,
+        &parse_state(state_text),
+        now,
+        dev,
+        "STATE.md",
+        state_text.lines().count(),
+        state_text.len(),
+    )
+}
 
-    let painted_time = if tty {
-        let styled = match color {
-            "red" => style(&remaining).fg(Color::Red),
-            "yellow" => style(&remaining).fg(Color::Yellow),
-            _ => style(&remaining).fg(Color::Green),
-        };
-        if expired {
-            styled.bold().to_string()
-        } else {
-            styled.to_string()
-        }
+pub fn render_sections(
+    answers: &Answers,
+    sections: &StateSections,
+    now: DateTime<Local>,
+    dev: &str,
+    state_label: &str,
+    state_lines: usize,
+    state_bytes: usize,
+) -> String {
+    let project_label = if answers.event_name.trim().is_empty() {
+        answers.project_name.as_str()
     } else {
-        remaining.clone()
+        answers.event_name.as_str()
     };
 
-    let sections = parse_state(state_text);
+    let header = match answers.deadline_at() {
+        Ok(deadline) => {
+            let seconds_left = (deadline - now).num_seconds();
+            let (remaining, expired) = format_remaining(deadline, now);
+            let frac = progress_fraction(answers, now);
+            let percent = (frac * 100.0).round() as u32;
+            let color = color_name(seconds_left, expired);
+            let tty = Term::stdout().is_term();
+            let painted_time = if tty {
+                let styled = match color {
+                    "red" => style(&remaining).fg(Color::Red),
+                    "yellow" => style(&remaining).fg(Color::Yellow),
+                    _ => style(&remaining).fg(Color::Green),
+                };
+                if expired {
+                    styled.bold().to_string()
+                } else {
+                    styled.to_string()
+                }
+            } else {
+                remaining.clone()
+            };
+            format!(
+                "{}   {}   [{}] {}%   ({color})",
+                project_label,
+                painted_time,
+                gauge(frac, 20),
+                percent
+            )
+        }
+        Err(_) => format!(
+            "{}   no deadline   ({})",
+            project_label,
+            answers.mode.label()
+        ),
+    };
+
     let focus = sections
         .focus
         .first()
@@ -143,8 +181,8 @@ pub fn render(answers: &Answers, state_text: &str, now: DateTime<Local>, dev: &s
         .next
         .iter()
         .filter_map(|line| {
-            line.strip_prefix("- [ ]")
-                .map(|rest| rest.trim().to_string())
+            let item = line.strip_prefix("- [ ]").unwrap_or(line).trim();
+            (!item.is_empty()).then(|| item.to_string())
         })
         .take(3)
         .collect();
@@ -161,21 +199,13 @@ pub fn render(answers: &Answers, state_text: &str, now: DateTime<Local>, dev: &s
         .unwrap_or_else(|| "none".to_string());
 
     let mut lines = vec![
-        format!(
-            "{}   {}   [{}] {}%   ({color})",
-            answers.event_name,
-            painted_time,
-            gauge(frac, 20),
-            percent
-        ),
+        header,
         format!("Focus:  {focus}"),
         format!("Next:   {next}"),
         format!("Blockers: {blockers}"),
         format!("Dev:    {dev}"),
     ];
-    let state_lines = state_text.lines().count();
-    let state_bytes = state_text.len();
-    let mut state_line = format!("STATE.md: {state_lines} lines");
+    let mut state_line = format!("{state_label}: {state_lines} lines");
     if state_lines > 80 || state_bytes > 4096 {
         state_line.push_str("  (consider /handoff)");
     }
@@ -219,10 +249,30 @@ pub fn process_alive(pid: u32) -> bool {
 
 pub fn run(root: &Path) -> Result<i32> {
     let answers = crate::cmds::load_required(root)?;
-    let state_path = root.join("STATE.md");
-    let state_text = fs::read_to_string(&state_path).unwrap_or_default();
     let dev = dev_status(root);
-    println!("{}", render(&answers, &state_text, Local::now(), &dev));
+    let now = Local::now();
+    match crate::state::load_state(root)? {
+        Some(state) => {
+            let raw = fs::read_to_string(crate::state::state_path(root)).unwrap_or_default();
+            println!(
+                "{}",
+                render_sections(
+                    &answers,
+                    &state.sections(),
+                    now,
+                    &dev,
+                    "state.json",
+                    raw.lines().count(),
+                    raw.len(),
+                )
+            );
+        }
+        None => {
+            let state_path = root.join("STATE.md");
+            let state_text = fs::read_to_string(&state_path).unwrap_or_default();
+            println!("{}", render(&answers, &state_text, now, &dev));
+        }
+    }
     Ok(0)
 }
 

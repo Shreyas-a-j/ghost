@@ -1,4 +1,6 @@
-use crate::answers::Answers;
+use crate::adapter::AdapterId;
+use crate::answers::{Answers, Mode};
+use crate::persist::FileLock;
 use anyhow::{bail, Context, Result};
 use chrono::Local;
 use std::fs;
@@ -8,16 +10,24 @@ use std::time::{Duration, Instant};
 
 pub const ANSWERS_PATH: &str = ".ghost/answers.json";
 
-pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Result<i32> {
+pub fn new_project(
+    dir: &Path,
+    force: bool,
+    answers_path: Option<&Path>,
+    requested_adapters: &[String],
+) -> Result<i32> {
     fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
+    let lock = FileLock::acquire(dir)?;
     let answers = match answers_path {
         Some(path) => Answers::load(path)?,
         None => crate::interview::run(dir)?,
     };
     answers.validate_for_new(Local::now())?;
 
+    let facts = crate::project::discover(dir)?;
+    let adapters = resolve_adapters(dir, requested_adapters)?;
     let agents = crate::opencode::detected_agents();
-    let files = crate::render::generate(&answers, &agents)?;
+    let files = crate::render::generate_for(&adapters, &answers, &agents)?;
     let target = dir.join(ANSWERS_PATH);
     let mut existing = crate::render::existing_targets(dir, &files);
     if target.exists() {
@@ -32,9 +42,7 @@ pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Resu
         );
     }
 
-    answers.save(&target)?;
-    crate::render::write_files(dir, &files)?;
-    crate::render::append_gitignore(dir)?;
+    write_all(dir, &lock, &answers, Some(&facts), &adapters, &files)?;
     println!(
         "generated {} files in {}",
         files.len(),
@@ -42,32 +50,179 @@ pub fn new_project(dir: &Path, force: bool, answers_path: Option<&Path>) -> Resu
             .unwrap_or_else(|_| dir.to_path_buf())
             .display()
     );
-    println!("next: run `ghost status`, then open OpenCode and use `/plan`");
+    println!("{}", next_hint(&adapters));
     Ok(0)
 }
 
-pub fn regen() -> Result<i32> {
+/// Initialize a repository without hackathon assumptions.
+///
+/// Existing answers and generated files are preserved. Files changed since the
+/// last generation, or files ghost did not generate, require `--force`.
+pub fn init_project(
+    dir: &Path,
+    force: bool,
+    profile: Mode,
+    name: Option<&str>,
+    answers_path: Option<&Path>,
+    requested_adapters: &[String],
+) -> Result<i32> {
+    fs::create_dir_all(dir).with_context(|| format!("could not create {}", dir.display()))?;
+    let lock = FileLock::acquire(dir)?;
+    let facts = crate::project::discover(dir)?;
+    let stored_answers = dir.join(ANSWERS_PATH);
+
+    let mut answers = if let Some(path) = answers_path {
+        Answers::load(path)?
+    } else if stored_answers.exists() {
+        Answers::load(&stored_answers)?
+    } else if profile == Mode::Hackathon {
+        crate::interview::run(dir)?
+    } else {
+        crate::project::generic_answers(&facts, name)
+    };
+    if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+        answers.project_name = name.to_string();
+    }
+    answers.validate_structure()?;
+
+    let adapters = resolve_adapters(dir, requested_adapters)?;
+    let agents = crate::opencode::detected_agents();
+    let files = crate::render::generate_for(&adapters, &answers, &agents)?;
+    let entries = crate::render::manifest_entries(&files);
+    let manifest = crate::persist::load_manifest(dir)?;
+    let conflicts = crate::persist::conflicts(dir, &entries, manifest.as_ref())?;
+    if !force && !conflicts.is_empty() {
+        bail!(
+            "refusing to overwrite files that ghost did not generate or that changed since generation:\n  {}\npass --force to overwrite generated files",
+            conflicts.join("\n  ")
+        );
+    }
+
+    write_all(dir, &lock, &answers, Some(&facts), &adapters, &files)?;
+    println!(
+        "initialized {} project in {}",
+        facts.primary_stack().label(),
+        dir.canonicalize()
+            .unwrap_or_else(|_| dir.to_path_buf())
+            .display()
+    );
+    if !facts.manifests.is_empty() {
+        println!("detected: {}", facts.manifests.join(", "));
+    }
+    println!(
+        "generated {} files; canonical state is in .ghost/",
+        files.len()
+    );
+    println!("{}", next_hint(&adapters));
+    Ok(0)
+}
+
+pub fn regen(force: bool, requested_adapters: &[String]) -> Result<i32> {
     let root = Path::new(".");
+    let lock = FileLock::acquire(root)?;
     let answers = load_required(root)?;
     answers.validate_structure()?;
+    let facts = crate::project::discover(root)?;
+    let adapters = resolve_adapters(root, requested_adapters)?;
     let agents = crate::opencode::detected_agents();
-    let files = crate::render::generate(&answers, &agents)?;
-    crate::render::write_files(root, &files)?;
-    crate::render::append_gitignore(root)?;
+    let files = crate::render::generate_for(&adapters, &answers, &agents)?;
+    let entries = crate::render::manifest_entries(&files);
+    let manifest = crate::persist::load_manifest(root)?;
+    let conflicts = crate::persist::conflicts(root, &entries, manifest.as_ref())?;
+    if !force && !conflicts.is_empty() {
+        bail!(
+            "refusing to overwrite files that ghost did not generate or that changed since generation:\n  {}\npass --force to overwrite generated files",
+            conflicts.join("\n  ")
+        );
+    }
+
+    write_all(root, &lock, &answers, Some(&facts), &adapters, &files)?;
     println!("re-rendered {} files", files.len());
     Ok(0)
+}
+
+/// Resolve the adapter selection: an explicit flag wins, then the saved
+/// `.ghost/config.toml`, then the OpenCode default.
+fn resolve_adapters(root: &Path, requested: &[String]) -> Result<Vec<AdapterId>> {
+    if !requested.is_empty() {
+        return AdapterId::from_names(requested);
+    }
+    let stored = crate::state::load_config_adapters(root)?;
+    if stored.is_empty() {
+        Ok(vec![AdapterId::OpenCode])
+    } else {
+        AdapterId::from_names(&stored)
+    }
+}
+
+fn next_hint(adapters: &[AdapterId]) -> &'static str {
+    if adapters.iter().any(|adapter| adapter.supports_commands()) {
+        "next: run `ghost status`, then open your agent and use `/plan`"
+    } else {
+        "next: run `ghost status`, then open Codex and read `specs/00-overview.md`"
+    }
+}
+
+fn write_all(
+    root: &Path,
+    lock: &FileLock,
+    answers: &Answers,
+    facts: Option<&crate::project::ProjectFacts>,
+    adapters: &[AdapterId],
+    files: &[crate::render::GeneratedFile],
+) -> Result<()> {
+    answers.save(&root.join(ANSWERS_PATH))?;
+    // Migrate an existing STATE.md before the generated view replaces it.
+    let has_commands = adapters.iter().any(|adapter| adapter.supports_commands());
+    let _ = crate::state::ensure_state(root, lock, answers, has_commands)?;
+    crate::render::write_files(root, files)?;
+    let entries = crate::render::manifest_entries(files);
+    crate::persist::write_manifest(root, &entries, lock)?;
+    crate::state::write_config(
+        root,
+        lock,
+        crate::state::profile_name(answers.mode),
+        &AdapterId::names(adapters),
+    )?;
+    crate::state::write_project(root, lock, answers, facts)?;
+    crate::render::append_gitignore(root)?;
+    Ok(())
 }
 
 pub fn load_required(root: &Path) -> Result<Answers> {
     let path = root.join(ANSWERS_PATH);
     if !path.exists() {
-        bail!("run `ghost new` first (missing {})", path.display());
+        bail!(
+            "run `ghost init` or `ghost new` first (missing {})",
+            path.display()
+        );
     }
     Answers::load(&path)
 }
 
 pub fn status() -> Result<i32> {
     crate::status::run(Path::new("."))
+}
+
+/// Show adapter detection and declared capabilities.
+pub fn adapters(json: bool) -> Result<i32> {
+    let info = crate::adapter::detect_all(Path::new("."));
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&info).context("could not serialize adapter info")?
+        );
+        return Ok(0);
+    }
+    for adapter in info {
+        println!("{} ({})", adapter.id, adapter.label);
+        println!(
+            "  capabilities: {}",
+            adapter.capabilities.summary().join(", ")
+        );
+        println!("  {}", adapter.detection.detail);
+    }
+    Ok(0)
 }
 
 pub fn check(timeout: u64) -> Result<i32> {

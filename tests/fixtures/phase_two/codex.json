@@ -1,0 +1,20 @@
+{
+  "adapter": "codex",
+  "required_files": [
+    "AGENTS.md",
+    "STATE.md",
+    "specs/00-overview.md",
+    "scripts/check.sh"
+  ],
+  "forbidden_files": [
+    "CLAUDE.md",
+    ".opencode/commands/plan.md",
+    ".claude/commands/plan.md",
+    "opencode.json"
+  ],
+  "commands_dir": null,
+  "state_has_slash_commands": false,
+  "argument_hint_commands": [],
+  "forbidden_command_text": [],
+  "instruction_layout": []
+}

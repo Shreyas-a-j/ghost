@@ -1,0 +1,24 @@
+{
+  "adapter": "claude",
+  "required_files": [
+    "CLAUDE.md",
+    "STATE.md",
+    ".claude/commands/plan.md",
+    ".claude/commands/build.md",
+    ".claude/commands/fix.md",
+    ".claude/commands/test.md",
+    ".claude/commands/review.md",
+    ".claude/commands/handoff.md",
+    ".claude/commands/checkpoint.md"
+  ],
+  "forbidden_files": [
+    "AGENTS.md",
+    ".opencode/commands/plan.md",
+    "opencode.json"
+  ],
+  "commands_dir": ".claude/commands",
+  "state_has_slash_commands": true,
+  "argument_hint_commands": ["build", "fix", "test", "checkpoint"],
+  "forbidden_command_text": ["agent:", "model:"],
+  "instruction_layout": [".claude/commands"]
+}

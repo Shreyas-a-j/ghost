@@ -157,7 +157,7 @@ fn missing_answers_exits_one_with_friendly_message() {
         let output = ghost(dir.path()).args(&args).output().unwrap();
         assert_eq!(output.status.code(), Some(1), "{args:?}");
         assert!(
-            stderr(&output).contains("run `ghost new` first"),
+            stderr(&output).contains("run `ghost init` or `ghost new` first"),
             "{args:?}"
         );
     }

@@ -127,7 +127,7 @@ pub fn run(dir: &Path) -> Result<Answers> {
         pitch: pitch.trim().to_string(),
         demo_steps,
         event_name: event_name.trim().to_string(),
-        deadline,
+        deadline: Some(deadline),
         team_size,
         mode,
         stack,
