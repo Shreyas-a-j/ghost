@@ -6,10 +6,10 @@ provides.
 
 ## Listing
 
-- **Name:** Ghost
+- **Name:** Ghost 2.0
 - **Skill id:** `ghost`
 - **Category:** Developer tools / Coding agents
-- **Price:** Free (non-exclusive listing)
+- **Price:** $5 USD (one-time purchase; non-exclusive listing)
 - **Repository:** https://github.com/Shreyas-a-j/ghost
 - **Support:** [your support email]
 - **Author:** [your name or handle]
@@ -17,14 +17,11 @@ provides.
 
 ## Short description
 
-> A local-first task, context, and verification workflow for coding agents.
-> Ghost keeps one source of truth in `.ghost/`, builds deterministic context
-> packets, records approved verification evidence, and hands off cleanly between
-> sessions.
+> Ghost 2.0 is a local-first workflow engine for OpenCode, Claude Code, and Codex. Keep project state, tasks, context packets, verification evidence, and handoffs organized across coding sessions.
 
 ## Long description
 
-Ghost gives a coding agent a small, durable workflow inside a repository.
+Ghost 2.0 gives supported AI coding agents a shared, durable project workflow inside an existing repository. The core Rust CLI remains free and MIT-licensed on GitHub; this $5 listing provides the packaged agent skill, setup guidance, and included reference templates. Buying the package does not grant exclusive access to the CLI.
 
 Most agent failures are not model failures. They are workflow failures: the
 agent loses the thread between sessions, reads too much of the repository, claims
@@ -53,7 +50,14 @@ and adapters for OpenCode, Claude Code, and Codex.
 
 There is no benchmark yet: token savings and context relevance are not measured.
 Verification is not sandboxed. Evidence is local and unsigned. Windows is not
-supported. The beta documentation states these limits explicitly.
+supported. The beta documentation states these limits explicitly. An externally signed distribution ZIP does not make internal verification evidence cryptographically signed.
+
+## Purchase and delivery
+
+- **Price:** $5 USD, one-time (subject to Agensi listing options).
+- **Deliverable:** Agent skill ZIP with `SKILL.md` at its root, installer instructions, scripts, references, and templates.
+- **Core CLI:** Free, open source (MIT), installed separately from the GitHub release or crates.io.
+- **Security:** Package signatures/checksums should be published and verifiable independently; signatures do not imply Agensi verifies them.
 
 ## Suggested tags
 

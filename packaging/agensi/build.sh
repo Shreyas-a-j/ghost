@@ -15,3 +15,8 @@ rm -f ghost.zip
 
 echo "built $(pwd)/ghost.zip"
 unzip -l ghost.zip
+
+if [ -f ghost.zip.sigstore.json ] || [ -f ghost.zip.sha256 ]; then
+  echo "warning: ghost.zip.sha256 and ghost.zip.sigstore.json are now stale" >&2
+  echo "warning: regenerate the checksum and re-sign before publishing" >&2
+fi
