@@ -134,7 +134,7 @@ pub struct FileLock {
 
 impl FileLock {
     pub fn acquire(root: &Path) -> Result<Self> {
-        let dir = root.join(GHOST_DIR);
+        let dir = safe_target(root, Path::new(GHOST_DIR))?;
         fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
         let path = dir.join(".lock");
 
@@ -190,6 +190,35 @@ fn process_alive(pid: u32) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+/// Best-effort credential filename detection. Used to keep likely secrets out
+/// of checkpoints and context packets; it is not a secret scanner.
+pub fn sensitive_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_ascii_lowercase();
+    if normalized
+        .split('/')
+        .any(|component| matches!(component, ".ssh" | ".aws" | ".gnupg" | ".docker"))
+    {
+        return true;
+    }
+    let name = normalized.rsplit('/').next().unwrap_or(&normalized);
+    name.starts_with(".env")
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.starts_with("id_ecdsa")
+        || name.starts_with("id_dsa")
+        || name.ends_with(".pem")
+        || name.ends_with(".key")
+        || name.ends_with(".p12")
+        || name.ends_with(".pfx")
+        || name.ends_with(".jks")
+        || name.ends_with(".keystore")
+        || name.ends_with(".kdbx")
+        || matches!(
+            name,
+            ".netrc" | ".npmrc" | ".pypirc" | ".pgpass" | ".htpasswd" | "credentials"
+        )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,6 +390,24 @@ pub fn sha256_hex(input: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_common_credential_names() {
+        for path in [
+            ".env",
+            "config/.env.local",
+            ".ssh/id_rsa",
+            "certs/server.pem",
+            "tls/client.p12",
+            "credentials",
+            ".aws/config",
+        ] {
+            assert!(sensitive_path(path), "{path}");
+        }
+        for path in ["src/main.rs", "README.md", "docs/keyboard.md"] {
+            assert!(!sensitive_path(path), "{path}");
+        }
+    }
 
     #[test]
     fn sha256_matches_known_vectors() {

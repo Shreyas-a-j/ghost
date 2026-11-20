@@ -34,6 +34,13 @@ fn marker(line: &str) -> Option<Section> {
     }
 }
 
+fn sanitize_line(line: &str) -> String {
+    line.trim()
+        .chars()
+        .filter(|ch| *ch == '\t' || !ch.is_control())
+        .collect()
+}
+
 pub fn parse_state(text: &str) -> StateSections {
     let mut sections = StateSections::default();
     let mut current = None;
@@ -42,16 +49,16 @@ pub fn parse_state(text: &str) -> StateSections {
             current = Some(section);
             continue;
         }
-        let trimmed = line.trim();
+        let trimmed = sanitize_line(line);
         if trimmed.is_empty() || trimmed.starts_with("## ") {
             continue;
         }
         match current {
-            Some(Section::Focus) => sections.focus.push(trimmed.to_string()),
-            Some(Section::Next) => sections.next.push(trimmed.to_string()),
-            Some(Section::Done) => sections.done.push(trimmed.to_string()),
-            Some(Section::Decisions) => sections.decisions.push(trimmed.to_string()),
-            Some(Section::Blockers) => sections.blockers.push(trimmed.to_string()),
+            Some(Section::Focus) => sections.focus.push(trimmed),
+            Some(Section::Next) => sections.next.push(trimmed),
+            Some(Section::Done) => sections.done.push(trimmed),
+            Some(Section::Decisions) => sections.decisions.push(trimmed),
+            Some(Section::Blockers) => sections.blockers.push(trimmed),
             None => {}
         }
     }
@@ -129,9 +136,9 @@ pub fn render_sections(
     state_bytes: usize,
 ) -> String {
     let project_label = if answers.event_name.trim().is_empty() {
-        answers.project_name.as_str()
+        sanitize_line(&answers.project_name)
     } else {
-        answers.event_name.as_str()
+        sanitize_line(&answers.event_name)
     };
 
     let header = match answers.deadline_at() {
@@ -174,7 +181,7 @@ pub fn render_sections(
     let focus = sections
         .focus
         .first()
-        .map(|line| strip_dash(line))
+        .map(|line| sanitize_line(&strip_dash(line)))
         .filter(|line| !line.is_empty())
         .unwrap_or_else(|| "not set".to_string());
     let next: Vec<String> = sections
@@ -182,7 +189,7 @@ pub fn render_sections(
         .iter()
         .filter_map(|line| {
             let item = line.strip_prefix("- [ ]").unwrap_or(line).trim();
-            (!item.is_empty()).then(|| item.to_string())
+            (!item.is_empty()).then(|| sanitize_line(item))
         })
         .take(3)
         .collect();
@@ -194,7 +201,7 @@ pub fn render_sections(
     let blockers = sections
         .blockers
         .first()
-        .map(|line| strip_dash(line))
+        .map(|line| sanitize_line(&strip_dash(line)))
         .filter(|line| !line.is_empty() && !line.eq_ignore_ascii_case("none."))
         .unwrap_or_else(|| "none".to_string());
 
@@ -310,6 +317,13 @@ mod tests {
         assert_eq!(sections.next.len(), 3);
         assert_eq!(sections.done, vec!["- First task"]);
         assert_eq!(sections.blockers, vec!["- None."]);
+    }
+
+    #[test]
+    fn strips_terminal_escapes_from_imported_state() {
+        let text = "<!-- ghost:focus -->\n## Current focus\n\u{1b}[31mred\n";
+        let sections = parse_state(text);
+        assert_eq!(sections.focus, vec!["[31mred"]);
     }
 
     #[test]

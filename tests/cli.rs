@@ -277,6 +277,7 @@ fn check_timeout_kills_the_process_group() {
 
     let output = ghost(dir.path())
         .args(["check", "--timeout", "2"])
+        .env("GHOST_ALLOW_MODIFIED_SCRIPTS", "1")
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(124), "{}", stderr(&output));
@@ -298,8 +299,28 @@ fn check_passes_through_child_exit_code() {
         "#!/usr/bin/env bash\necho stage failing\nexit 7\n",
     )
     .unwrap();
-    let output = ghost(dir.path()).arg("check").output().unwrap();
+    let output = ghost(dir.path())
+        .arg("check")
+        .env("GHOST_ALLOW_MODIFIED_SCRIPTS", "1")
+        .output()
+        .unwrap();
     assert_eq!(output.status.code(), Some(7));
+}
+
+#[test]
+fn check_refuses_a_modified_generated_script() {
+    let dir = TempDir::new().unwrap();
+    assert!(new_project(dir.path(), "cargo run", None).status.success());
+    fs::write(
+        dir.path().join("scripts/check.sh"),
+        "#!/usr/bin/env bash\necho tampered\n",
+    )
+    .unwrap();
+
+    let output = ghost(dir.path()).arg("check").output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let error = stderr(&output);
+    assert!(error.contains("changed since it was generated"), "{error}");
 }
 
 #[test]

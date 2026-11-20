@@ -135,9 +135,24 @@ fn verify_requires_approval_then_records_evidence_and_events() {
     let refused = ghost(dir.path(), &["verify", "--task", "TASK-0001"]);
     assert_eq!(refused.status.code(), Some(1));
     assert!(
-        stderr(&refused).contains("not approved"),
+        stderr(&refused).contains("pass --approve"),
         "{}",
         stderr(&refused)
+    );
+
+    // A task-sourced command must not become approved just because the same
+    // repository ships an allowlist entry for it.
+    fs::write(
+        dir.path().join(".ghost/verify.json"),
+        "{\"schema_version\":1,\"allow\":[\"true\"]}\n",
+    )
+    .unwrap();
+    let still_refused = ghost(dir.path(), &["verify", "--task", "TASK-0001"]);
+    assert_eq!(still_refused.status.code(), Some(1));
+    assert!(
+        stderr(&still_refused).contains("pass --approve"),
+        "{}",
+        stderr(&still_refused)
     );
 
     let approved = ghost(dir.path(), &["verify", "--task", "TASK-0001", "--approve"]);
@@ -167,6 +182,7 @@ fn verify_requires_approval_then_records_evidence_and_events() {
     assert!(stdout(&listed).contains("exit=0"), "{}", stdout(&listed));
     assert!(stdout(&listed).contains("TASK-0001"), "{}", stdout(&listed));
 
+    fs::remove_file(dir.path().join(".ghost/verify.json")).unwrap();
     let allowlist = ghost(dir.path(), &["verify", "--", "true"]);
     assert_eq!(allowlist.status.code(), Some(1));
     fs::write(

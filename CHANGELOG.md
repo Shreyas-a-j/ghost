@@ -19,6 +19,11 @@ Ghost 2.0 implementation, developed in phases:
 - Approved verification with evidence and stale detection (`ghost verify`).
 - CI, release packaging with SHA-256 checksums, beta documentation, and
   fault-injection tests.
+- Security hardening: terminal control-character stripping, Markdown fence
+  escaping, credential-name filtering for context and checkpoint, journal
+  secret masking, private randomized verification logs, script hash checks
+  before execution, explicit approval for task-sourced checks, strict
+  `schema_version` validation, and symlink-safe `.ghost` locking.
 
 ## 0.1.0
 

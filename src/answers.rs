@@ -193,6 +193,34 @@ impl Answers {
             "project_name must not be empty"
         );
         ensure!(!self.pitch.trim().is_empty(), "pitch must not be empty");
+
+        // These values are rendered into agent instructions and shell scripts.
+        // Reject control characters and cap length so a hostile answers file
+        // cannot forge additional Markdown sections or frontmatter.
+        scalar("project_name", &self.project_name, 120)?;
+        scalar("pitch", &self.pitch, 2000)?;
+        scalar("event_name", &self.event_name, 120)?;
+        scalar("stack_details", &self.stack_details, 500)?;
+        scalar("run_cmd", &self.run_cmd, 500)?;
+        for (index, step) in self.demo_steps.iter().enumerate() {
+            scalar(&format!("demo_steps[{index}]"), step, 300)?;
+        }
+        for (index, feature) in self.must_haves.iter().enumerate() {
+            scalar(&format!("must_haves[{index}]"), feature, 200)?;
+        }
+        for (index, feature) in self.nice_to_haves.iter().enumerate() {
+            scalar(&format!("nice_to_haves[{index}]"), feature, 200)?;
+        }
+        for (index, skill) in self.skills.iter().enumerate() {
+            scalar(&format!("skills[{index}]"), skill, 100)?;
+        }
+        if let Some(model) = &self.model_override {
+            scalar("model_override", model, 200)?;
+        }
+        if let Some(deadline) = &self.deadline {
+            scalar("deadline", deadline, 64)?;
+        }
+
         match self.mode {
             Mode::Hackathon => {
                 ensure!(
@@ -292,6 +320,20 @@ impl Answers {
             .map(str::trim)
             .filter(|m| !m.is_empty())
     }
+}
+
+/// Require a short, single-line value that cannot inject Markdown structure or
+/// terminal control sequences.
+fn scalar(field: &str, value: &str, max_chars: usize) -> Result<()> {
+    ensure!(
+        value.chars().count() <= max_chars,
+        "{field} must be at most {max_chars} characters"
+    );
+    ensure!(
+        !value.chars().any(char::is_control),
+        "{field} must not contain control characters or newlines"
+    );
+    Ok(())
 }
 
 pub fn parse_local_datetime(input: &str) -> Result<DateTime<Local>> {

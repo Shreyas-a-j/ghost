@@ -66,7 +66,9 @@ ghost resume
 ## Known limitations
 
 - No sandbox. `ghost verify` approval is a user promise; an approved command
-  runs with the user's shell access.
+  runs with the user's shell access. Task-sourced acceptance checks always
+  require an explicit `--approve`, even when a repository ships a matching
+  allowlist.
 - Evidence is unsigned and local. It is not a tamper-proof attestation.
 - Context selection is heuristic. There is no embedding retrieval and no
   comparative benchmark.

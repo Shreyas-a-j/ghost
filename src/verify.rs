@@ -135,22 +135,12 @@ pub fn run(
     let source_hashes = source_hashes(root, task_id, &facts.manifests)?;
 
     let id = next_run_id(root);
-    let log_path = root.join(".ghost").join(format!(".{id}.log"));
-    if let Some(parent) = log_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("could not create {}", parent.display()))?;
-    }
-    let log = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&log_path)
-        .with_context(|| format!("could not create {}", log_path.display()))?;
+    let (log_path, log) = create_log(root)?;
     let log_err = log.try_clone()?;
 
     let started_at = Local::now();
     let started = Instant::now();
-    let mut child = Command::new("setsid")
+    let mut child = match Command::new("setsid")
         .arg("bash")
         .arg("-c")
         .arg(command)
@@ -159,7 +149,13 @@ pub fn run(
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err))
         .spawn()
-        .context("could not start verification command (is setsid installed?)")?;
+    {
+        Ok(child) => child,
+        Err(err) => {
+            let _ = fs::remove_file(&log_path);
+            return Err(err).context("could not start verification command (is setsid installed?)");
+        }
+    };
     let pid = child.id();
     let mut timed_out = false;
     let exit_code = loop {
@@ -222,6 +218,40 @@ pub fn run(
         lock,
     )?;
     Ok(evidence)
+}
+
+/// Create a unique, private log file with `create_new`, which refuses to follow
+/// a pre-planted symlink. Never derive the name from a predictable timestamp
+/// alone.
+fn create_log(root: &Path) -> Result<(PathBuf, fs::File)> {
+    let dir = root.join(".ghost");
+    fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
+    let pid = std::process::id();
+    for attempt in 0..64 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path = dir.join(format!(".verify-{pid}-{nanos}-{attempt}.log"));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err).with_context(|| format!("could not create {}", path.display()))
+            }
+        }
+    }
+    bail!(
+        "could not create a private verification log in {}",
+        dir.display()
+    )
 }
 
 fn kill_group(pid: u32, signal: &str) {
@@ -290,8 +320,17 @@ pub fn list(root: &Path) -> Result<Vec<Evidence>> {
         }
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("could not read {}", path.display()))?;
-        let record: Evidence = serde_json::from_str(&raw)
+        let mut record: Evidence = serde_json::from_str(&raw)
             .with_context(|| format!("could not parse {}", path.display()))?;
+        anyhow::ensure!(
+            record.schema_version == EVIDENCE_SCHEMA_VERSION,
+            "{} uses unsupported schema_version {} (expected {})",
+            path.display(),
+            record.schema_version,
+            EVIDENCE_SCHEMA_VERSION
+        );
+        record.command = crate::events::terminal_safe(&record.command);
+        record.task_id = record.task_id.as_deref().map(crate::events::terminal_safe);
         evidence.push(record);
     }
     evidence.sort_by_key(|record| std::cmp::Reverse(record.started_at));

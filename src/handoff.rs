@@ -93,10 +93,10 @@ impl ResumeReport {
     }
 }
 
-fn short(revision: Option<&str>) -> &str {
+fn short(revision: Option<&str>) -> String {
     revision
-        .map(|revision| &revision[..revision.len().min(8)])
-        .unwrap_or("no revision")
+        .map(|revision| revision.chars().take(8).collect())
+        .unwrap_or_else(|| "no revision".to_string())
 }
 
 fn task_line(tasks: &[TaskSnapshot]) -> String {
@@ -162,8 +162,31 @@ pub fn load(root: &Path) -> Result<Option<HandoffSnapshot>> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err).with_context(|| format!("could not read {}", path.display())),
     };
-    let snapshot = serde_json::from_str(&raw)
+    let mut snapshot: HandoffSnapshot = serde_json::from_str(&raw)
         .with_context(|| format!("could not parse {}", path.display()))?;
+    anyhow::ensure!(
+        snapshot.schema_version == HANDOFF_SCHEMA_VERSION,
+        "{} uses unsupported schema_version {} (expected {})",
+        path.display(),
+        snapshot.schema_version,
+        HANDOFF_SCHEMA_VERSION
+    );
+    snapshot.branch = snapshot.branch.as_deref().map(events::terminal_safe);
+    snapshot.note = snapshot.note.as_deref().map(events::terminal_safe);
+    for line in snapshot
+        .state
+        .focus
+        .iter_mut()
+        .chain(snapshot.state.next.iter_mut())
+        .chain(snapshot.state.done.iter_mut())
+        .chain(snapshot.state.decisions.iter_mut())
+        .chain(snapshot.state.blockers.iter_mut())
+    {
+        *line = events::terminal_safe(line);
+    }
+    for task in &mut snapshot.tasks {
+        task.title = events::terminal_safe(&task.title);
+    }
     Ok(Some(snapshot))
 }
 

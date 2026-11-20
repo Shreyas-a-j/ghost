@@ -58,16 +58,19 @@ impl Packet {
         if !self.files.is_empty() {
             out.push_str("## Relevant files\n\n");
             for file in &self.files {
+                let fence = fence_for(&file.content);
                 out.push_str(&format!(
-                    "### {}{}\n```{}\n{}\n```\n\n",
+                    "### {}{}\n{}{}\n{}\n{}\n\n",
                     file.path,
                     if file.truncated {
                         format!(" (first {} lines)", file.lines)
                     } else {
                         String::new()
                     },
+                    fence,
                     language(&file.path),
-                    file.content.trim_end()
+                    file.content.trim_end(),
+                    fence
                 ));
             }
         }
@@ -84,6 +87,22 @@ impl Packet {
         ));
         out
     }
+}
+
+/// Choose a fence longer than any backtick run in the content so a file cannot
+/// break out of its code block.
+fn fence_for(content: &str) -> String {
+    let mut longest = 0;
+    let mut run = 0;
+    for ch in content.chars() {
+        if ch == '`' {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    "`".repeat(longest.max(2) + 1)
 }
 
 fn language(path: &str) -> &'static str {
@@ -203,7 +222,7 @@ pub fn build(root: &Path, task_id: Option<&str>, budget: usize) -> Result<Packet
             omitted.push(format!("{path} (missing, binary, or too large)"));
             continue;
         };
-        let allowed = remaining * CHARS_PER_TOKEN - path.len() - 16;
+        let allowed = (remaining * CHARS_PER_TOKEN).saturating_sub(path.len() + 16);
         truncate_excerpt(&mut excerpt, allowed);
         if excerpt.content.trim().is_empty() {
             omitted.push(format!("{path} (budget)"));
@@ -396,9 +415,19 @@ fn git_paths(root: &Path) -> Vec<String> {
         .collect()
 }
 
+fn excluded_path(relative: &str) -> bool {
+    let normalized = relative.replace('\\', "/");
+    let normalized = normalized.trim_start_matches("./");
+    normalized.starts_with(".ghost/")
+        || normalized.starts_with(".git/")
+        || normalized.starts_with("target/")
+        || normalized.starts_with("node_modules/")
+        || persist::sensitive_path(relative)
+}
+
 fn read_excerpt(root: &Path, relative: &str) -> Result<Option<FileExcerpt>> {
     let relative_path = Path::new(relative);
-    if persist::validate_relative(relative_path).is_err() {
+    if persist::validate_relative(relative_path).is_err() || excluded_path(relative) {
         return Ok(None);
     }
     let path = root.join(relative_path);
@@ -422,7 +451,7 @@ fn read_excerpt(root: &Path, relative: &str) -> Result<Option<FileExcerpt>> {
             truncated = true;
             break;
         }
-        content.push_str(line);
+        content.push_str(&sanitize_line(line));
         content.push('\n');
         lines += 1;
     }
@@ -434,8 +463,16 @@ fn read_excerpt(root: &Path, relative: &str) -> Result<Option<FileExcerpt>> {
     }))
 }
 
-fn short(revision: &str) -> &str {
-    &revision[..revision.len().min(8)]
+fn short(revision: &str) -> String {
+    revision.chars().take(8).collect()
+}
+
+/// Strip terminal control characters from repository content before it reaches
+/// the terminal or a model prompt.
+fn sanitize_line(line: &str) -> String {
+    line.chars()
+        .filter(|ch| *ch == '\t' || !ch.is_control())
+        .collect()
 }
 
 /// Trim an excerpt to a character budget at a line boundary when possible.
@@ -539,5 +576,20 @@ mod tests {
             packet.files.first().map(|file| file.path.as_str()),
             Some("src/lib.rs")
         );
+    }
+
+    #[test]
+    fn excerpts_strip_escapes_and_cannot_break_the_fence() {
+        let dir = tempfile::tempdir().unwrap();
+        let task = sample(dir.path());
+        fs::write(
+            dir.path().join("src/lib.rs"),
+            "```\n\u{1b}[31mred\u{1b}[0m\n```\n",
+        )
+        .unwrap();
+        let packet = build(dir.path(), Some(&task.id), DEFAULT_BUDGET).unwrap();
+        let rendered = packet.render();
+        assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
+        assert!(rendered.contains("````rust"), "{rendered}");
     }
 }

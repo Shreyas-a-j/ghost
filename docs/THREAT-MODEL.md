@@ -70,9 +70,17 @@ Mitigations:
 - `check` runs synchronously with a timeout and kills the process group.
 - `down` stops only the PID recorded by `dev.sh`.
 - `checkpoint` refuses common secret file names and never pushes.
+- `check` and `down` compare the script against its SHA-256 in
+  `.ghost/generated-manifest.json` and refuse to run a changed script.
+  `GHOST_ALLOW_MODIFIED_SCRIPTS=1` is an explicit opt-out for deliberate local
+  edits, and `ghost regen` rewrites the script and its hash.
+- Acceptance checks referenced by a task are always treated as untrusted
+  repository data: they require an explicit `--approve`, even if the same
+  repository ships a matching `.ghost/verify.json` entry.
 
 Residual risk: the generated script content is only as safe as the user's review.
-Ghost does not sandbox scripts.
+Ghost does not sandbox scripts. An approved command runs with the user's shell
+access.
 
 ### Secret exposure
 
@@ -81,12 +89,23 @@ Generated context could include secrets; checkpoint could commit them.
 Mitigations:
 
 - `.env`, `.env.*`, `.ghost/dev.pid`, and `.ghost/dev.log` are ignored.
-- `checkpoint` refuses `.env*`, `*.pem`, `*.key`, and `id_rsa*`.
+- `checkpoint` enumerates every real path with
+  `git status --porcelain=v1 -z --untracked-files=all --no-renames`, so a
+  collapsed untracked directory cannot hide a secret file.
+- `checkpoint` and `context` share a name filter covering `.env*`, private keys
+  (`*.pem`, `*.key`, `*.p12`, `.ssh/`, `.aws/`, `id_rsa*`, `id_ed25519*`), and
+  common credential files (`.netrc`, `.npmrc`, `.pypirc`, `.pgpass`).
+- `context` excludes `.ghost/`, `.git/`, `target/`, and `node_modules/` even when
+  a task references them explicitly.
+- Journal and evidence metadata mask common credential keys before storage.
+- Loaded state, task, handoff, and evidence text is stripped of terminal control
+  characters before printing.
 - Ghost reads skill and agent *directory names* only, never their contents.
 - No network or model calls, so repository content is not uploaded.
 
-Residual risk: the name-based checkpoint filter is incomplete. Secrets with other
-names can still be committed by the user.
+Residual risk: the name-based filter is incomplete. A secret with an arbitrary
+filename can still be committed or included in a context packet. Review a
+packet before pasting it into a remote model.
 
 ### Journal and handoff
 
@@ -110,14 +129,20 @@ can still be stored; keep prompts and credentials out of both.
 Mitigations:
 
 - A command runs only with `--approve` or an exact match in `.ghost/verify.json`.
+- Acceptance checks taken from a task file always require `--approve`; a
+  committed allowlist cannot approve them.
 - Commands run in their own process group with a timeout; the group is killed.
 - Only the last 40 lines are stored, each redacted and capped at 200 characters.
 - Evidence records a redaction policy, revision, and source hashes, not full logs.
-- Raw output is written to a temporary file under `.ghost/` and deleted after use.
+- Raw output is written to a private (`0600`) log created with `create_new` and a
+  randomized name, so a pre-planted symlink cannot redirect or truncate another
+  file. The log is deleted after use.
+- Every canonical document checks `schema_version` before use.
 - Ghost never pushes, deploys, or uploads anything.
 
 Residual risk: the allowlist is a promise by the user, not a sandbox. An
-approved command has the same access as the user's shell.
+approved command has the same access as the user's shell. Evidence is local and
+unsigned.
 
 ### Context packet disclosure
 

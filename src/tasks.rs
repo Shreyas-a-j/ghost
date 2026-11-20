@@ -198,9 +198,20 @@ pub fn load(root: &Path, id: &str) -> Result<Task> {
     let path = root.join(task_path(id));
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("could not read {}; run `ghost task list`", path.display()))?;
-    let task: Task = serde_json::from_str(&raw)
+    let mut task: Task = serde_json::from_str(&raw)
         .with_context(|| format!("could not parse {}", path.display()))?;
+    anyhow::ensure!(
+        task.schema_version == TASK_SCHEMA_VERSION,
+        "{} uses unsupported schema_version {} (expected {})",
+        path.display(),
+        task.schema_version,
+        TASK_SCHEMA_VERSION
+    );
     task.validate()?;
+    task.title = events::terminal_safe(&task.title);
+    if let Some(owner) = task.owner_agent.as_mut() {
+        *owner = events::terminal_safe(owner);
+    }
     Ok(task)
 }
 

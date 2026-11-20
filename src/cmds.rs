@@ -348,8 +348,8 @@ pub fn handoff(note: Option<&str>) -> Result<i32> {
         snapshot
             .revision
             .as_deref()
-            .map(|revision| &revision[..revision.len().min(8)])
-            .unwrap_or("none")
+            .map(|revision| revision.chars().take(8).collect::<String>())
+            .unwrap_or_else(|| "none".to_string())
     );
     Ok(0)
 }
@@ -424,6 +424,7 @@ pub fn verify(
         return Ok(0);
     }
 
+    let mut task_sourced = false;
     let commands: Vec<String> = if !command.is_empty() {
         vec![command.join(" ")]
     } else if let Some(id) = task {
@@ -431,12 +432,22 @@ pub fn verify(
         if task.acceptance_checks.is_empty() {
             bail!("{id} has no acceptance checks; pass a command after --");
         }
+        task_sourced = true;
         task.acceptance_checks
     } else {
         bail!("pass a command after -- or select --task");
     };
 
     for candidate in &commands {
+        // Acceptance checks live in the repository, which is untrusted input.
+        // An allowlist committed in the same tree must not approve them; only
+        // an explicit flag from the caller can.
+        if task_sourced && !approve {
+            bail!(
+                "acceptance checks come from {}; pass --approve after reviewing this exact command:\n  {candidate}",
+                task.unwrap_or("the task file")
+            );
+        }
         if !crate::verify::is_allowed(root, candidate, approve)? {
             bail!(
                 "command not approved: {candidate}\npass --approve or add it to .ghost/verify.json (exact match)"
@@ -459,6 +470,31 @@ pub fn verify(
     Ok(code)
 }
 
+/// Generated scripts are executable, so refuse to run one whose contents no
+/// longer match the manifest recorded at generation time. `ghost regen`
+/// rewrites the script and its hash; the environment variable is an explicit
+/// opt-out for deliberate local edits.
+fn ensure_script_is_current(root: &Path, relative: &str) -> Result<()> {
+    if std::env::var_os("GHOST_ALLOW_MODIFIED_SCRIPTS").is_some() {
+        return Ok(());
+    }
+    let path = root.join(relative);
+    let bytes = fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let actual = crate::persist::sha256_hex(&bytes);
+    match crate::persist::load_manifest(root)? {
+        Some(manifest) => match manifest.files.get(relative) {
+            Some(expected) if expected == &actual => Ok(()),
+            Some(_) => bail!(
+                "{relative} changed since it was generated; review it, then set GHOST_ALLOW_MODIFIED_SCRIPTS=1 or run `ghost regen`"
+            ),
+            None => bail!(
+                "{relative} is not recorded in .ghost/generated-manifest.json; run `ghost regen`"
+            ),
+        },
+        None => bail!("missing .ghost/generated-manifest.json; run `ghost regen`"),
+    }
+}
+
 pub fn check(timeout: u64) -> Result<i32> {
     let root = Path::new(".");
     load_required(root)?;
@@ -466,6 +502,7 @@ pub fn check(timeout: u64) -> Result<i32> {
     if !script.exists() {
         bail!("missing scripts/check.sh; run `ghost regen` first");
     }
+    ensure_script_is_current(root, "scripts/check.sh")?;
     let mut child = Command::new("setsid")
         .arg("bash")
         .arg(&script)
@@ -510,6 +547,7 @@ pub fn down() -> Result<i32> {
     if !script.exists() {
         bail!("missing scripts/dev.sh; run `ghost regen` first");
     }
+    ensure_script_is_current(root, "scripts/dev.sh")?;
     let status = Command::new("bash")
         .arg(&script)
         .arg("stop")
@@ -524,21 +562,27 @@ pub fn checkpoint(args: &[String]) -> Result<i32> {
     load_required(root)?;
 
     let output = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--no-renames",
+        ])
         .current_dir(root)
         .output()
         .context("could not run git status; is this a git repository?")?;
     if !output.status.success() {
         bail!("git status failed; is this a git repository?");
     }
-    let status = String::from_utf8_lossy(&output.stdout);
-    if status.trim().is_empty() {
+    let paths = changed_paths(&output.stdout);
+    if paths.is_empty() {
         println!("nothing to commit");
         return Ok(0);
     }
 
-    for path in changed_paths(&status) {
-        if sensitive_path(&path) {
+    for path in &paths {
+        if sensitive_path(path) {
             eprintln!("refusing checkpoint: sensitive file {path}");
             return Ok(1);
         }
@@ -573,27 +617,19 @@ pub fn checkpoint(args: &[String]) -> Result<i32> {
     Ok(commit.code().unwrap_or(1))
 }
 
-fn changed_paths(status: &str) -> Vec<String> {
-    status
-        .lines()
-        .filter_map(|line| {
-            if line.len() < 4 {
-                return None;
-            }
-            let path = line[3..].split(" -> ").last().unwrap_or("").trim();
-            let path = path.trim_matches('"');
-            (!path.is_empty()).then(|| path.to_string())
+/// Parse `git status --porcelain=v1 -z` output. `--untracked-files=all` and
+/// `--no-renames` ensure every real path appears once, so a collapsed
+/// directory entry cannot hide a secret file.
+fn changed_paths(raw: &[u8]) -> Vec<String> {
+    raw.split(|byte| *byte == 0)
+        .filter(|record| record.len() > 3)
+        .filter_map(|record| {
+            let path = &record[3..];
+            (!path.is_empty()).then(|| String::from_utf8_lossy(path).to_string())
         })
         .collect()
 }
 
 fn sensitive_path(path: &str) -> bool {
-    let name = Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path);
-    name.starts_with(".env")
-        || name.ends_with(".pem")
-        || name.ends_with(".key")
-        || name.starts_with("id_rsa")
+    crate::persist::sensitive_path(path)
 }

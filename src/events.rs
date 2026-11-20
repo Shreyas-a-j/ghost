@@ -139,9 +139,10 @@ impl Event {
 
 /// Collapse control characters and cap length so the journal stays metadata-only.
 pub fn redact(value: &str) -> String {
-    let mut cleaned = String::with_capacity(value.len().min(MAX_FIELD_CHARS));
+    let masked = mask_secrets(value);
+    let mut cleaned = String::with_capacity(masked.len().min(MAX_FIELD_CHARS));
     let mut last_space = false;
-    for ch in value.chars() {
+    for ch in masked.chars() {
         let ch = if ch.is_control() { ' ' } else { ch };
         if ch == ' ' {
             if last_space {
@@ -158,6 +159,105 @@ pub fn redact(value: &str) -> String {
         cleaned.push(ch);
     }
     cleaned.trim().to_string()
+}
+
+/// Remove terminal control characters (including ESC) without truncating.
+/// Apply this to values loaded from repository files before printing them.
+pub fn terminal_safe(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| *ch == '\t' || !ch.is_control())
+        .collect()
+}
+
+const SECRET_KEYS: [&str; 13] = [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "api-key",
+    "apikey",
+    "authorization",
+    "private_key",
+    "private-key",
+    "access_key",
+    "client_secret",
+    "bearer",
+];
+
+/// Mask `key=value` and `key: value` pairs for common credential names. This is
+/// deliberately narrow; it reduces accidental journal/evidence leakage but is
+/// not a secret scanner.
+fn mask_secrets(input: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for key in SECRET_KEYS {
+        let mut from = 0;
+        while let Some(offset) = lower[from..].find(key) {
+            let start = from + offset;
+            let key_end = start + key.len();
+            let before_ok = start == 0
+                || lower[..start]
+                    .chars()
+                    .next_back()
+                    .map(|ch| !ch.is_alphanumeric())
+                    .unwrap_or(true);
+            let mut cursor = key_end;
+            while lower[cursor..].starts_with(' ') {
+                cursor += 1;
+            }
+            let separator = lower[cursor..].chars().next();
+            if before_ok && matches!(separator, Some('=') | Some(':')) {
+                let mut value_start = cursor + 1;
+                while let Some(ch) = lower[value_start..].chars().next() {
+                    if ch == ' ' || ch == '"' || ch == '\'' {
+                        value_start += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                let mut value_end = value_start
+                    + lower[value_start..]
+                        .find(|ch: char| {
+                            ch.is_whitespace() || matches!(ch, ',' | ';' | '"' | '\'' | '}' | ']')
+                        })
+                        .unwrap_or(lower.len() - value_start);
+                if key == "authorization"
+                    && matches!(&lower[value_start..value_end], "bearer" | "basic")
+                {
+                    while lower[value_end..].starts_with(' ') {
+                        value_end += 1;
+                    }
+                    value_end += lower[value_end..]
+                        .find(|ch: char| {
+                            ch.is_whitespace() || matches!(ch, ',' | ';' | '"' | '\'' | '}' | ']')
+                        })
+                        .unwrap_or(lower.len() - value_end);
+                }
+                if value_end > value_start {
+                    ranges.push((value_start, value_end));
+                }
+            }
+            from = key_end;
+        }
+    }
+    if ranges.is_empty() {
+        return input.to_string();
+    }
+    ranges.sort_unstable();
+    let mut out = String::with_capacity(input.len());
+    let mut last = 0;
+    for (start, end) in ranges {
+        if start < last {
+            continue;
+        }
+        out.push_str(&input[last..start]);
+        out.push_str("[redacted]");
+        last = end;
+    }
+    out.push_str(&input[last..]);
+    out
 }
 
 /// Append one event. The caller owns the `.ghost` lock.
@@ -208,6 +308,17 @@ mod tests {
         assert!(!redacted.contains('\t'));
         assert!(redacted.chars().count() <= MAX_FIELD_CHARS + 3);
         assert!(redacted.ends_with("..."));
+    }
+
+    #[test]
+    fn secrets_are_masked_before_storage() {
+        let raw = "api_key=abc123 password: hunter2 Authorization: Bearer tok-9";
+        let cleaned = redact(raw);
+        assert!(!cleaned.contains("abc123"), "{cleaned}");
+        assert!(!cleaned.contains("hunter2"), "{cleaned}");
+        assert!(!cleaned.contains("tok-9"), "{cleaned}");
+        assert!(cleaned.contains("[redacted]"), "{cleaned}");
+        assert_eq!(redact("build passed"), "build passed");
     }
 
     #[test]
