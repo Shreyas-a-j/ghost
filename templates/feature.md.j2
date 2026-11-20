@@ -3,7 +3,7 @@
 Spec id: `{{ feature.slug }}`
 
 ## Background
-Demo step: {{ feature.demo_step }}
+{% if hackathon %}Demo step{% else %}Primary flow step{% endif %}: {{ feature.demo_step }}
 Part of the {{ mode_label }} scope for {{ project_name }}.
 
 ## Scenario: happy path

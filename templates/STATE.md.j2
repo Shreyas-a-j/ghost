@@ -1,12 +1,14 @@
 # State
 <!-- ghost:focus -->
 ## Current focus
-- Project initialized. Read `specs/00-overview.md` and run `/plan`.
-<!-- ghost:next -->
+{% if has_commands %}- Project initialized. Read `specs/00-overview.md` and run `/plan`.
+{% else %}- Project initialized. Read `specs/00-overview.md`.
+{% endif %}<!-- ghost:next -->
 ## Next steps
-- [ ] `/plan`
+{% if has_commands %}- [ ] `/plan`
 {% for feature in must_haves %}- [ ] `/build {{ feature.slug }}`
-{% endfor %}<!-- ghost:done -->
+{% endfor %}{% else %}{% for feature in must_haves %}- [ ] Implement `specs/feature-{{ feature.slug }}.md`
+{% endfor %}{% endif %}<!-- ghost:done -->
 ## Done
 - Nothing yet.
 <!-- ghost:decisions -->

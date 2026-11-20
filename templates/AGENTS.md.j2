@@ -15,8 +15,8 @@ Layout:
 - `STATE.md` — current focus, next steps, decisions, blockers.
 - `specs/` — overview, one file per feature, schema notes.
 - `scripts/` — deterministic check and dev helpers.
-- `.opencode/commands/` — project slash commands.
-- `src/` — application code.
+{% if command_layout %}- `{{ command_layout }}/` — project slash commands.
+{% endif %}- `src/` — application code.
 
 Rules:
 1. Read STATE.md first and update it when a task finishes.

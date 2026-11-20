@@ -1,0 +1,32 @@
+{
+  "project_name": "orbit",
+  "pitch": "A small service that returns satellite passes for a location.",
+  "demo_steps": [
+    "Request passes for a latitude and longitude",
+    "Show the next visible pass",
+    "Run the check script"
+  ],
+  "event_name": "",
+  "deadline": null,
+  "team_size": "solo",
+  "mode": "normal",
+  "stack": "rust",
+  "stack_details": "axum + reqwest",
+  "run_cmd": "cargo run",
+  "must_haves": [
+    "pass lookup",
+    "visible pass filter"
+  ],
+  "nice_to_haves": [
+    "cache responses"
+  ],
+  "existing_code": true,
+  "risky_areas": [
+    "external_apis"
+  ],
+  "test_level": "smoke",
+  "model_override": null,
+  "skills": [],
+  "checkpoint_freq": "before_risky",
+  "created_at": "2026-01-01T00:00:00+00:00"
+}

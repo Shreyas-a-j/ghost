@@ -1,0 +1,24 @@
+{
+  "adapter": "opencode",
+  "required_files": [
+    "AGENTS.md",
+    "STATE.md",
+    ".opencode/commands/plan.md",
+    ".opencode/commands/build.md",
+    ".opencode/commands/fix.md",
+    ".opencode/commands/test.md",
+    ".opencode/commands/review.md",
+    ".opencode/commands/handoff.md",
+    ".opencode/commands/checkpoint.md"
+  ],
+  "forbidden_files": [
+    "CLAUDE.md",
+    ".claude/commands/plan.md",
+    "opencode.json"
+  ],
+  "commands_dir": ".opencode/commands",
+  "state_has_slash_commands": true,
+  "argument_hint_commands": [],
+  "forbidden_command_text": ["argument-hint:"],
+  "instruction_layout": [".opencode/commands"]
+}

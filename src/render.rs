@@ -1,5 +1,5 @@
+use crate::adapter::{implementation, Adapter, AdapterId, COMMANDS};
 use crate::answers::{slugify, Answers, Stack};
-use crate::opencode;
 use anyhow::{Context, Result};
 use minijinja::{Environment, Value};
 use serde::Serialize;
@@ -7,7 +7,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const AGENTS_TEMPLATE: &str = include_str!("../templates/AGENTS.md.j2");
+const INSTRUCTIONS_TEMPLATE: &str = include_str!("../templates/AGENTS.md.j2");
 const STATE_TEMPLATE: &str = include_str!("../templates/STATE.md.j2");
 const OVERVIEW_TEMPLATE: &str = include_str!("../templates/overview.md.j2");
 const FEATURE_TEMPLATE: &str = include_str!("../templates/feature.md.j2");
@@ -31,7 +31,13 @@ const COMMAND_TEMPLATES: [(&str, &str); 7] = [
     ),
 ];
 
-pub const GITIGNORE_LINES: [&str; 4] = [".env", ".env.*", ".ghost/dev.pid", ".ghost/dev.log"];
+pub const GITIGNORE_LINES: [&str; 5] = [
+    ".env",
+    ".env.*",
+    ".ghost/.lock",
+    ".ghost/dev.pid",
+    ".ghost/dev.log",
+];
 
 #[derive(Debug, Clone)]
 pub struct GeneratedFile {
@@ -41,7 +47,7 @@ pub struct GeneratedFile {
 }
 
 impl GeneratedFile {
-    fn new(path: impl Into<PathBuf>, content: String) -> Self {
+    pub(crate) fn new(path: impl Into<PathBuf>, content: String) -> Self {
         let mut content = content;
         if !content.ends_with('\n') {
             content.push('\n');
@@ -66,7 +72,7 @@ pub struct FeatureView {
     pub demo_step: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct View {
     project_name: String,
     pitch: String,
@@ -92,10 +98,12 @@ struct View {
     is_ts: bool,
     is_other: bool,
     run_tests: bool,
+    has_commands: bool,
+    instructions_file: String,
 }
 
 impl View {
-    fn from_answers(answers: &Answers) -> Self {
+    fn from_answers(answers: &Answers, has_commands: bool) -> Self {
         let must_haves = answers
             .must_haves
             .iter()
@@ -118,7 +126,7 @@ impl View {
             stack_line: answers.stack_line(),
             event_name: answers.event_name.clone(),
             team_size: answers.team_size.label().to_string(),
-            deadline: answers.deadline.clone(),
+            deadline: answers.deadline.clone().unwrap_or_default(),
             demo_steps: answers.demo_steps.clone(),
             must_haves,
             nice_to_haves: answers.nice_to_haves.clone(),
@@ -136,20 +144,21 @@ impl View {
             is_ts: answers.stack == Stack::TypeScriptNode,
             is_other: answers.stack == Stack::Other,
             run_tests: answers.test_level.runs_tests(),
+            has_commands,
+            instructions_file: "AGENTS.md".to_string(),
         }
     }
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 #[derive(Serialize)]
-struct CommandView<'a> {
+struct InstructionView<'a> {
     #[serde(flatten)]
     base: &'a View,
-    agent_line: String,
-    model_line: String,
+    command_layout: String,
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn environment() -> Result<Environment<'static>> {
@@ -161,8 +170,8 @@ fn environment() -> Result<Environment<'static>> {
             .build()
             .context("invalid template syntax config")?,
     );
-    env.add_template("agents", AGENTS_TEMPLATE)
-        .context("invalid AGENTS template")?;
+    env.add_template("instructions", INSTRUCTIONS_TEMPLATE)
+        .context("invalid instructions template")?;
     env.add_template("state", STATE_TEMPLATE)
         .context("invalid STATE template")?;
     env.add_template("overview", OVERVIEW_TEMPLATE)
@@ -182,80 +191,153 @@ fn environment() -> Result<Environment<'static>> {
     Ok(env)
 }
 
-pub fn generate(answers: &Answers, agents: &BTreeSet<String>) -> Result<Vec<GeneratedFile>> {
-    let env = environment()?;
-    let view = View::from_answers(answers);
-    let ctx = Value::from(minijinja::value::Serde(&view));
+fn render(env: &Environment<'_>, name: &str, ctx: Value) -> Result<String> {
+    env.get_template(name)?
+        .render(ctx)
+        .with_context(|| format!("could not render {name}"))
+}
 
-    let render = |name: &str| -> Result<String> {
-        env.get_template(name)?
-            .render(ctx.clone())
-            .with_context(|| format!("could not render {name}"))
-    };
-
+fn common_files(env: &Environment<'_>, view: &View) -> Result<Vec<GeneratedFile>> {
+    let ctx = Value::from(minijinja::value::Serde(view));
     let mut files = Vec::new();
-    files.push(GeneratedFile::new("AGENTS.md", render("agents")?));
-    files.push(GeneratedFile::new("STATE.md", render("state")?));
+    files.push(GeneratedFile::new(
+        "STATE.md",
+        render(env, "state", ctx.clone())?,
+    ));
     files.push(GeneratedFile::new(
         "specs/00-overview.md",
-        render("overview")?,
+        render(env, "overview", ctx.clone())?,
     ));
     for feature in &view.must_haves {
         let feature_ctx = Value::from(minijinja::value::Serde(serde_json::json!({
             "project_name": view.project_name.clone(),
             "mode_label": view.mode_label.clone(),
+            "hackathon": view.hackathon,
             "feature": feature,
         })));
-        let content = env
-            .get_template("feature")?
-            .render(feature_ctx)
+        let content = render(env, "feature", feature_ctx)
             .with_context(|| format!("could not render feature {}", feature.slug))?;
         files.push(GeneratedFile::new(
             format!("specs/feature-{}.md", feature.slug),
             content,
         ));
     }
-    files.push(GeneratedFile::new("specs/schema.yaml", render("schema")?));
-    files.push(GeneratedFile::new("scripts/check.sh", render("check")?).executable());
-    files.push(GeneratedFile::new("scripts/dev.sh", render("dev")?).executable());
+    files.push(GeneratedFile::new(
+        "specs/schema.yaml",
+        render(env, "schema", ctx.clone())?,
+    ));
+    files.push(
+        GeneratedFile::new("scripts/check.sh", render(env, "check", ctx.clone())?).executable(),
+    );
+    files.push(GeneratedFile::new("scripts/dev.sh", render(env, "dev", ctx)?).executable());
+    Ok(files)
+}
 
-    for (name, _) in COMMAND_TEMPLATES {
-        let agent = opencode::agent_for(name, agents);
-        let command_view = CommandView {
-            base: &view,
-            agent_line: agent
-                .map(|agent| format!("agent: {agent}\n"))
-                .unwrap_or_default(),
-            model_line: answers
-                .model_line()
-                .map(|model| format!("model: {model}\n"))
-                .unwrap_or_default(),
+fn instruction_file(
+    env: &Environment<'_>,
+    view: &View,
+    path: &str,
+    command_layout: &str,
+) -> Result<GeneratedFile> {
+    let ctx = Value::from(minijinja::value::Serde(&InstructionView {
+        base: view,
+        command_layout: command_layout.to_string(),
+    }));
+    Ok(GeneratedFile::new(path, render(env, "instructions", ctx)?))
+}
+
+fn command_files(
+    env: &Environment<'_>,
+    view: &View,
+    answers: &Answers,
+    agents: &BTreeSet<String>,
+    adapter: &dyn Adapter,
+) -> Result<Vec<GeneratedFile>> {
+    let Some(directory) = adapter.commands_dir() else {
+        return Ok(Vec::new());
+    };
+    let mut view = view.clone();
+    view.instructions_file = adapter
+        .instruction_file()
+        .unwrap_or("AGENTS.md")
+        .to_string();
+    let ctx = Value::from(minijinja::value::Serde(&view));
+    let mut files = Vec::new();
+    for spec in COMMANDS {
+        let body = render(env, &format!("cmd-{}", spec.name), ctx.clone())?;
+        let header = adapter.command_header(&spec, answers, agents);
+        files.push(GeneratedFile::new(
+            format!("{directory}/{}.md", spec.name),
+            format!("{header}{body}"),
+        ));
+    }
+    Ok(files)
+}
+
+fn ordered_adapters(adapters: &[AdapterId]) -> Vec<AdapterId> {
+    let mut ordered: Vec<AdapterId> = AdapterId::ALL
+        .iter()
+        .copied()
+        .filter(|adapter| adapters.contains(adapter))
+        .collect();
+    if ordered.is_empty() {
+        ordered.push(AdapterId::OpenCode);
+    }
+    ordered
+}
+
+#[cfg(test)]
+pub fn generate(answers: &Answers, agents: &BTreeSet<String>) -> Result<Vec<GeneratedFile>> {
+    generate_for(&[AdapterId::OpenCode], answers, agents)
+}
+
+pub fn generate_for(
+    adapters: &[AdapterId],
+    answers: &Answers,
+    agents: &BTreeSet<String>,
+) -> Result<Vec<GeneratedFile>> {
+    let env = environment()?;
+    let selected: Vec<&dyn Adapter> = ordered_adapters(adapters)
+        .into_iter()
+        .map(implementation)
+        .collect();
+    let has_commands = selected
+        .iter()
+        .any(|adapter| adapter.capabilities().commands);
+    let view = View::from_answers(answers, has_commands);
+    let mut files = Vec::new();
+
+    // OpenCode and Codex share AGENTS.md; emit each instruction file once and
+    // mention a command directory only when the adapter that owns it has one.
+    let mut emitted = HashSet::new();
+    for adapter in &selected {
+        let Some(path) = adapter.instruction_file() else {
+            continue;
         };
-        let template_name = format!("cmd-{name}");
-        let content = env
-            .get_template(&template_name)?
-            .render(Value::from(minijinja::value::Serde(&command_view)))
-            .with_context(|| format!("could not render command {name}"))?;
-        files.push(GeneratedFile::new(
-            format!("{}/{name}.md", opencode::COMMANDS_DIR),
-            content,
-        ));
+        if !emitted.insert(path) {
+            continue;
+        }
+        let layout = adapter
+            .commands_dir()
+            .or_else(|| {
+                selected
+                    .iter()
+                    .filter(|other| other.instruction_file() == Some(path))
+                    .find_map(|other| other.commands_dir())
+            })
+            .unwrap_or("");
+        files.push(instruction_file(&env, &view, path, layout)?);
     }
 
-    if let Some(model) = answers.model_line() {
-        let config = serde_json::json!({
-            "$schema": opencode::CONFIG_SCHEMA,
-            "model": model,
-        });
-        files.push(GeneratedFile::new(
-            opencode::PROJECT_CONFIG,
-            format!(
-                "{}\n",
-                serde_json::to_string_pretty(&config).context("could not render opencode.json")?
-            ),
-        ));
+    files.extend(common_files(&env, &view)?);
+
+    for adapter in &selected {
+        files.extend(command_files(&env, &view, answers, agents, *adapter)?);
+        files.extend(adapter.config_files(answers)?);
     }
 
+    let mut seen = HashSet::new();
+    files.retain(|file| seen.insert(file.path.clone()));
     Ok(files)
 }
 
@@ -271,32 +353,22 @@ pub fn existing_targets(root: &Path, files: &[GeneratedFile]) -> Vec<String> {
 
 pub fn write_files(root: &Path, files: &[GeneratedFile]) -> Result<()> {
     for file in files {
-        let path = root.join(&file.path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("could not create {}", parent.display()))?;
-        }
-        fs::write(&path, &file.content)
+        let path = crate::persist::safe_target(root, &file.path)?;
+        crate::persist::atomic_write(&path, file.content.as_bytes(), file.executable)
             .with_context(|| format!("could not write {}", path.display()))?;
-        if file.executable {
-            set_executable(&path)?;
-        }
     }
     Ok(())
 }
 
-#[cfg(unix)]
-fn set_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(path)?.permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_executable(_path: &Path) -> Result<()> {
-    Ok(())
+/// Stable manifest entries for a generated file set.
+pub fn manifest_entries(files: &[GeneratedFile]) -> Vec<(String, String)> {
+    files
+        .iter()
+        .map(|file| {
+            let path = file.path.to_string_lossy().replace('\\', "/");
+            (path, crate::persist::sha256_hex(file.content.as_bytes()))
+        })
+        .collect()
 }
 
 pub fn append_gitignore(root: &Path) -> Result<()> {
@@ -324,7 +396,9 @@ pub fn append_gitignore(root: &Path) -> Result<()> {
         content.push_str(line);
         content.push('\n');
     }
-    fs::write(&path, content).with_context(|| format!("could not write {}", path.display()))?;
+    let target = crate::persist::safe_target(root, Path::new(".gitignore"))?;
+    crate::persist::atomic_write(&target, content.as_bytes(), false)
+        .with_context(|| format!("could not write {}", path.display()))?;
     Ok(())
 }
 
@@ -345,7 +419,7 @@ mod tests {
                 "See progress".into(),
             ],
             event_name: "HackMIT 2026".into(),
-            deadline: "2099-01-01 10:00".into(),
+            deadline: Some("2099-01-01 10:00".into()),
             team_size: TeamSize::Solo,
             mode,
             stack,
@@ -376,15 +450,24 @@ mod tests {
                 file.path.display()
             );
         }
-        let agents = files
+        if let Some(agents) = files
             .iter()
-            .find(|f| f.path == Path::new("AGENTS.md"))
-            .unwrap();
-        assert!(
-            agents.content.lines().count() <= 40,
-            "AGENTS.md has {} lines",
-            agents.content.lines().count()
-        );
+            .find(|f| f.path == Path::new("AGENTS.md") || f.path == Path::new("CLAUDE.md"))
+        {
+            assert!(
+                agents.content.lines().count() <= 40,
+                "{} has {} lines",
+                agents.path.display(),
+                agents.content.lines().count()
+            );
+        }
+    }
+
+    fn find<'a>(files: &'a [GeneratedFile], path: &str) -> &'a GeneratedFile {
+        files
+            .iter()
+            .find(|file| file.path == Path::new(path))
+            .unwrap_or_else(|| panic!("missing {path}"))
     }
 
     #[test]
@@ -488,15 +571,9 @@ mod tests {
         let mut answers = sample(Stack::Rust, Mode::Normal);
         answers.model_override = Some("provider/model".into());
         let files = generate(&answers, &BTreeSet::new()).unwrap();
-        let build = files
-            .iter()
-            .find(|f| f.path == Path::new(".opencode/commands/build.md"))
-            .unwrap();
+        let build = find(&files, ".opencode/commands/build.md");
         assert!(build.content.contains("model: provider/model"));
-        let config = files
-            .iter()
-            .find(|f| f.path == Path::new("opencode.json"))
-            .unwrap();
+        let config = find(&files, "opencode.json");
         let parsed: serde_json::Value = serde_json::from_str(&config.content).unwrap();
         assert_eq!(parsed["model"], "provider/model");
         assert_eq!(parsed["$schema"], crate::opencode::CONFIG_SCHEMA);
@@ -508,17 +585,87 @@ mod tests {
             .into_iter()
             .collect();
         let files = generate(&sample(Stack::Rust, Mode::Normal), &agents).unwrap();
-        let find = |path: &str| {
-            files
-                .iter()
-                .find(|f| f.path == Path::new(path))
-                .unwrap()
-                .content
-                .clone()
-        };
-        assert!(find(".opencode/commands/build.md").contains("agent: build"));
-        assert!(find(".opencode/commands/review.md").contains("agent: reviewer"));
-        assert!(!find(".opencode/commands/test.md").contains("agent:"));
+        assert!(find(&files, ".opencode/commands/build.md")
+            .content
+            .contains("agent: build"));
+        assert!(find(&files, ".opencode/commands/review.md")
+            .content
+            .contains("agent: reviewer"));
+        assert!(!find(&files, ".opencode/commands/test.md")
+            .content
+            .contains("agent:"));
+    }
+
+    #[test]
+    fn claude_adapter_writes_instructions_and_commands() {
+        let files = generate_for(
+            &[AdapterId::Claude],
+            &sample(Stack::Rust, Mode::Normal),
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        let claude = find(&files, "CLAUDE.md");
+        assert!(claude.content.contains(".claude/commands"));
+        assert!(!files.iter().any(|file| file.path == Path::new("AGENTS.md")));
+        let build = find(&files, ".claude/commands/build.md");
+        assert!(build
+            .content
+            .contains("description: Implement one feature spec"));
+        assert!(build.content.contains("argument-hint: <feature-slug>"));
+        assert!(build.content.contains("$ARGUMENTS"));
+        assert!(!build.content.contains("agent:"));
+        assert!(!files
+            .iter()
+            .any(|file| file.path == Path::new("opencode.json")));
+    }
+
+    #[test]
+    fn codex_adapter_writes_agents_md_without_project_commands() {
+        let files = generate_for(
+            &[AdapterId::Codex],
+            &sample(Stack::Rust, Mode::Normal),
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        let agents = find(&files, "AGENTS.md");
+        assert!(!agents.content.contains(".opencode/commands"));
+        assert!(!agents.content.contains(".claude/commands"));
+        assert!(!files
+            .iter()
+            .any(|file| file.path.starts_with(".opencode") || file.path.starts_with(".claude")));
+        let state = find(&files, "STATE.md");
+        assert!(!state.content.contains("`/plan`"));
+        assert!(state.content.contains("Read `specs/00-overview.md`"));
+        assert!(!files.iter().any(|file| file.path == Path::new("CLAUDE.md")));
+    }
+
+    #[test]
+    fn combined_adapters_share_common_files_without_duplicates() {
+        let files = generate_for(
+            &[AdapterId::OpenCode, AdapterId::Claude, AdapterId::Codex],
+            &sample(Stack::Rust, Mode::Normal),
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        let mut paths = HashSet::new();
+        for file in &files {
+            assert!(
+                paths.insert(file.path.clone()),
+                "duplicate {}",
+                file.path.display()
+            );
+        }
+        for path in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".opencode/commands/build.md",
+            ".claude/commands/build.md",
+            "STATE.md",
+        ] {
+            find(&files, path);
+        }
+        let state = find(&files, "STATE.md");
+        assert!(state.content.contains("`/plan`"));
     }
 
     #[test]

@@ -136,7 +136,7 @@ pub struct Answers {
     pub pitch: String,
     pub demo_steps: Vec<String>,
     pub event_name: String,
-    pub deadline: String,
+    pub deadline: Option<String>,
     pub team_size: TeamSize,
     pub mode: Mode,
     pub stack: Stack,
@@ -168,19 +168,22 @@ impl Answers {
                 .with_context(|| format!("could not create {}", parent.display()))?;
         }
         let raw = serde_json::to_string_pretty(self).context("could not serialize answers")?;
-        fs::write(path, format!("{raw}\n"))
+        crate::persist::atomic_write(path, format!("{raw}\n").as_bytes(), false)
             .with_context(|| format!("could not write {}", path.display()))?;
         Ok(())
     }
 
     pub fn validate_for_new(&self, now: DateTime<Local>) -> Result<()> {
         self.validate_structure()?;
-        let deadline = self.deadline_at()?;
-        ensure!(
-            deadline > now,
-            "deadline {} must be in the future",
-            self.deadline
-        );
+        if self.deadline.is_some() {
+            let deadline = self.deadline_at()?;
+            ensure!(deadline > now, "deadline {deadline} must be in the future");
+        } else {
+            ensure!(
+                self.mode != Mode::Hackathon,
+                "hackathon profile requires a deadline in YYYY-MM-DD HH:MM"
+            );
+        }
         Ok(())
     }
 
@@ -190,17 +193,59 @@ impl Answers {
             "project_name must not be empty"
         );
         ensure!(!self.pitch.trim().is_empty(), "pitch must not be empty");
-        ensure!(
-            self.demo_steps.len() == 3,
-            "demo_steps must contain exactly 3 steps"
-        );
+
+        // These values are rendered into agent instructions and shell scripts.
+        // Reject control characters and cap length so a hostile answers file
+        // cannot forge additional Markdown sections or frontmatter.
+        scalar("project_name", &self.project_name, 120)?;
+        scalar("pitch", &self.pitch, 2000)?;
+        scalar("event_name", &self.event_name, 120)?;
+        scalar("stack_details", &self.stack_details, 500)?;
+        scalar("run_cmd", &self.run_cmd, 500)?;
+        for (index, step) in self.demo_steps.iter().enumerate() {
+            scalar(&format!("demo_steps[{index}]"), step, 300)?;
+        }
+        for (index, feature) in self.must_haves.iter().enumerate() {
+            scalar(&format!("must_haves[{index}]"), feature, 200)?;
+        }
+        for (index, feature) in self.nice_to_haves.iter().enumerate() {
+            scalar(&format!("nice_to_haves[{index}]"), feature, 200)?;
+        }
+        for (index, skill) in self.skills.iter().enumerate() {
+            scalar(&format!("skills[{index}]"), skill, 100)?;
+        }
+        if let Some(model) = &self.model_override {
+            scalar("model_override", model, 200)?;
+        }
+        if let Some(deadline) = &self.deadline {
+            scalar("deadline", deadline, 64)?;
+        }
+
+        match self.mode {
+            Mode::Hackathon => {
+                ensure!(
+                    self.demo_steps.len() == 3,
+                    "hackathon demo_steps must contain exactly 3 steps"
+                );
+                ensure!(
+                    (1..=6).contains(&self.must_haves.len()),
+                    "hackathon must_haves must contain 1 to 6 features"
+                );
+            }
+            Mode::Normal => {
+                ensure!(
+                    self.demo_steps.len() <= 3,
+                    "demo_steps must contain at most 3 steps"
+                );
+                ensure!(
+                    self.must_haves.len() <= 6,
+                    "must_haves must contain at most 6 features"
+                );
+            }
+        }
         ensure!(
             self.demo_steps.iter().all(|s| !s.trim().is_empty()),
             "demo_steps must not contain empty steps"
-        );
-        ensure!(
-            (1..=6).contains(&self.must_haves.len()),
-            "must_haves must contain 1 to 6 features"
         );
         ensure!(
             self.must_haves.iter().all(|s| !s.trim().is_empty()),
@@ -228,12 +273,15 @@ impl Answers {
                 "must-have features must have unique slugs (duplicate: {feature})"
             );
         }
-        self.deadline_at()?;
+        if self.deadline.is_some() {
+            self.deadline_at()?;
+        }
         Ok(())
     }
 
     pub fn deadline_at(&self) -> Result<DateTime<Local>> {
-        parse_local_datetime(&self.deadline)
+        let deadline = self.deadline.as_deref().context("no deadline configured")?;
+        parse_local_datetime(deadline)
     }
 
     pub fn risky_label(&self) -> String {
@@ -272,6 +320,20 @@ impl Answers {
             .map(str::trim)
             .filter(|m| !m.is_empty())
     }
+}
+
+/// Require a short, single-line value that cannot inject Markdown structure or
+/// terminal control sequences.
+fn scalar(field: &str, value: &str, max_chars: usize) -> Result<()> {
+    ensure!(
+        value.chars().count() <= max_chars,
+        "{field} must be at most {max_chars} characters"
+    );
+    ensure!(
+        !value.chars().any(char::is_control),
+        "{field} must not contain control characters or newlines"
+    );
+    Ok(())
 }
 
 pub fn parse_local_datetime(input: &str) -> Result<DateTime<Local>> {
@@ -314,7 +376,7 @@ mod tests {
             pitch: "A tiny demo.".into(),
             demo_steps: vec!["first".into(), "second".into(), "third".into()],
             event_name: "HackMIT".into(),
-            deadline: "2099-01-01 10:00".into(),
+            deadline: Some("2099-01-01 10:00".into()),
             team_size: TeamSize::Solo,
             mode: Mode::Hackathon,
             stack: Stack::Rust,
@@ -347,16 +409,29 @@ mod tests {
         let now = Local.with_ymd_and_hms(2026, 1, 1, 10, 0, 0).unwrap();
         assert!(answers.validate_for_new(now).is_ok());
 
-        answers.deadline = "2020-01-01 10:00".into();
+        answers.deadline = Some("2020-01-01 10:00".into());
         let err = answers.validate_for_new(now).unwrap_err().to_string();
         assert!(err.contains("future"), "{err}");
 
-        answers.deadline = "not a date".into();
+        answers.deadline = Some("not a date".into());
         assert!(answers.validate_for_new(now).is_err());
 
-        answers.deadline = "2099-01-01 10:00".into();
+        answers.deadline = Some("2099-01-01 10:00".into());
         answers.must_haves = vec!["Same Name".into(), "same-name".into()];
         assert!(answers.validate_structure().is_err());
+    }
+
+    #[test]
+    fn normal_mode_allows_no_deadline_and_no_features() {
+        let mut answers = sample();
+        answers.mode = Mode::Normal;
+        answers.deadline = None;
+        answers.demo_steps.clear();
+        answers.must_haves.clear();
+        answers.validate_for_new(Local::now()).unwrap();
+
+        answers.mode = Mode::Hackathon;
+        assert!(answers.validate_for_new(Local::now()).is_err());
     }
 
     #[test]

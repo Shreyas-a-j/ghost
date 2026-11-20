@@ -1,7 +1,4 @@
----
-description: Implement one feature spec
-{{ agent_line }}{{ model_line }}---
-Read project `AGENTS.md`, `STATE.md`, and only `specs/feature-$ARGUMENTS.md`.
+Read project `{{ instructions_file }}`, `STATE.md`, and only `specs/feature-$ARGUMENTS.md`.
 {% if checkpoint_before %}First run `ghost checkpoint "before build $ARGUMENTS"`.
 {% endif %}Implement the scenarios in that spec.
 Run `scripts/check.sh` and fix failures.

@@ -58,11 +58,24 @@ fn existing_projects_keep_source_and_generate_repeatable_handoffs() {
         let init = ["new", "--answers", input.to_str().unwrap()];
         for args in [init.as_slice(), &["regen"]] {
             let result = run(args);
-            assert!(result.status.success(), "{stack}: {}", String::from_utf8_lossy(&result.stderr));
+            assert!(
+                result.status.success(),
+                "{stack}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
             assert_eq!(fs::read_to_string(project.join(manifest)).unwrap(), source);
-            assert_eq!(fs::read_to_string(project.join("STATE.md")).unwrap(), EXPECTED_STATE);
+            assert_eq!(
+                fs::read_to_string(project.join("STATE.md")).unwrap(),
+                EXPECTED_STATE
+            );
             let ignore = fs::read_to_string(project.join(".gitignore")).unwrap();
-            for entry in ["local-cache/", ".env", ".env.*", ".ghost/dev.pid", ".ghost/dev.log"] {
+            for entry in [
+                "local-cache/",
+                ".env",
+                ".env.*",
+                ".ghost/dev.pid",
+                ".ghost/dev.log",
+            ] {
                 assert_eq!(ignore.lines().filter(|line| *line == entry).count(), 1);
             }
         }
@@ -70,6 +83,9 @@ fn existing_projects_keep_source_and_generate_repeatable_handoffs() {
         let conflict = run(&init);
         assert!(!conflict.status.success());
         assert!(String::from_utf8_lossy(&conflict.stderr).contains("STATE.md"));
-        assert_eq!(fs::read_to_string(project.join("STATE.md")).unwrap(), "Developer handoff\n");
+        assert_eq!(
+            fs::read_to_string(project.join("STATE.md")).unwrap(),
+            "Developer handoff\n"
+        );
     }
 }
