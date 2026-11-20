@@ -332,7 +332,7 @@ GitHub Releases are built by `.github/workflows/release.yml` when a `v*` tag is
 pushed:
 
 ```bash
-git tag v0.1.0
+git tag v2.0.0
 git push origin master --tags
 ```
 

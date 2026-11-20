@@ -14,11 +14,11 @@ set -euo pipefail
 #
 # Environment:
 #   GHOST_SOURCE    path to a Ghost checkout (preferred for development)
-#   GHOST_VERSION   release tag to download (default: v0.1.0)
+#   GHOST_VERSION   release tag to download (default: v2.0.0)
 #   GHOST_BIN_DIR   install directory for a downloaded binary (default: ~/.local/bin)
 
 REPO="Shreyas-a-j/ghost"
-VERSION="${GHOST_VERSION:-v0.1.0}"
+VERSION="${GHOST_VERSION:-v2.0.0}"
 BIN_DIR="${GHOST_BIN_DIR:-$HOME/.local/bin}"
 CONFIRM="${1:-}"
 

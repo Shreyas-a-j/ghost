@@ -62,6 +62,9 @@ ghost resume
   manifests, live and dead locks, and leftover temporary files.
 - CI runs `cargo fmt --check`, Clippy with `-D warnings`, and the full test
   suite on Linux.
+- `cargo audit` on the committed lockfile reports no known vulnerabilities. It
+  warns that `chrono 0.4.45` is unmaintained (RUSTSEC-2026-0543); there is no
+  known exploit and no fixed upgrade yet.
 
 ## Known limitations
 

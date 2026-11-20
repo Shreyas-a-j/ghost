@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 - 2026-11-20
 
 Ghost 2.0 implementation, developed in phases:
 
@@ -24,6 +24,8 @@ Ghost 2.0 implementation, developed in phases:
   secret masking, private randomized verification logs, script hash checks
   before execution, explicit approval for task-sourced checks, strict
   `schema_version` validation, and symlink-safe `.ghost` locking.
+- CI runs `cargo audit`; the lockfile has no known vulnerabilities (one
+  unmaintained-dependency warning for `chrono`).
 
 ## 0.1.0
 

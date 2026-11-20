@@ -183,9 +183,12 @@ Mitigations:
 - SHA-256 is implemented in-tree to avoid a hashing dependency.
 - `Cargo.lock` is committed and installs use `--locked`.
 - Release artifacts are built from tags by CI.
+- CI runs `cargo audit` against the committed lockfile.
 
-Gaps: no `cargo audit` job and no signed artifacts yet. Release packages ship
-with SHA-256 checksum files.
+Gaps: no signed artifacts yet. Release packages ship SHA-256 checksum files.
+`cargo audit` reports one warning: `chrono 0.4.45` is marked unmaintained
+(RUSTSEC-2026-0543) with no known vulnerability and no fixed upgrade. It is
+tracked as a migration item, not treated as a release blocker.
 
 ### Agent adapter drift
 
